@@ -1,0 +1,70 @@
+{
+  "version": "0.2.0",
+  "sources": [
+    {
+      "id": "ndrc_notice_policy",
+      "category": "policy_primary_documents",
+      "parser_kind": "ndrc_notice_list",
+      "url": "https://www.ndrc.gov.cn/xwdt/tzgg/",
+      "issuing_body": "国家发展改革委",
+      "policy_level": "ministry",
+      "enabled": true
+    },
+    {
+      "id": "miit_file_release",
+      "category": "policy_primary_documents",
+      "parser_kind": "miit_rrs_section",
+      "url": "https://www.miit.gov.cn/RRSdy/",
+      "section_name": "文件发布",
+      "issuing_body": "工业和信息化部",
+      "policy_level": "ministry",
+      "enabled": true
+    },
+    {
+      "id": "miit_statistical_analysis",
+      "category": "industry_catalyst_calendar",
+      "parser_kind": "miit_rrs_section",
+      "url": "https://www.miit.gov.cn/RRSdy/",
+      "section_name": "统计分析",
+      "issuing_body": "工业和信息化部",
+      "policy_level": "ministry",
+      "enabled": true
+    },
+    {
+      "id": "stats_latest_release",
+      "category": "industry_catalyst_calendar",
+      "parser_kind": "rss_xml",
+      "url": "https://www.stats.gov.cn/sj/zxfb/rss.xml",
+      "issuing_body": "国家统计局",
+      "policy_level": "national",
+      "enabled": true
+    },
+    {
+      "id": "cninfo_latest_announcements",
+      "category": "exchange_filings",
+      "parser_kind": "cninfo_latest_announcements",
+      "url": "https://www.cninfo.com.cn/?lang=zh",
+      "issuing_body": "巨潮资讯",
+      "policy_level": "official_platform",
+      "enabled": true
+    },
+    {
+      "id": "sse_hot_topics",
+      "category": "financial_news_wire",
+      "parser_kind": "sse_hot_topics",
+      "url": "https://www.sse.com.cn/",
+      "issuing_body": "上海证券交易所",
+      "policy_level": "exchange",
+      "enabled": true
+    },
+    {
+      "id": "szse_exchange_news",
+      "category": "financial_news_wire",
+      "parser_kind": "szse_exchange_news",
+      "url": "https://www.szse.cn/index/",
+      "issuing_body": "深圳证券交易所",
+      "policy_level": "exchange",
+      "enabled": true
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "version": "0.1.0",
+  "tasks": [
+    {
+      "task_id": "event_analysis",
+      "input_objects": [
+        "filing_record",
+        "news_record"
+      ],
+      "output_object": "event_card",
+      "prompt_file": "prompts/tasks/event_analysis.md"
+    },
+    {
+      "task_id": "theme_mapping",
+      "input_objects": [
+        "policy_record",
+        "news_record"
+      ],
+      "output_object": "theme_card",
+      "prompt_file": "prompts/tasks/theme_mapping.md"
+    },
+    {
+      "task_id": "capital_behavior_summary",
+      "input_objects": [
+        "capital_flow_record"
+      ],
+      "output_object": "capital_behavior_card",
+      "prompt_file": "prompts/tasks/capital_behavior_summary.md"
+    },
+    {
+      "task_id": "market_regime_commentary",
+      "input_objects": [
+        "market_breadth_record",
+        "index_bar_record"
+      ],
+      "output_object": "market_regime_snapshot",
+      "prompt_file": "prompts/tasks/market_regime_analysis.md"
+    },
+    {
+      "task_id": "candidate_diagnosis",
+      "input_objects": [
+        "candidate_card",
+        "event_card",
+        "theme_card",
+        "capital_behavior_card",
+        "market_regime_snapshot"
+      ],
+      "output_object": "candidate_card",
+      "prompt_file": "prompts/tasks/candidate_diagnosis.md"
+    },
+    {
+      "task_id": "trade_plan_drafting",
+      "input_objects": [
+        "candidate_card",
+        "event_card",
+        "theme_card",
+        "capital_behavior_card",
+        "market_regime_snapshot"
+      ],
+      "output_object": "trade_plan_card",
+      "prompt_file": "prompts/tasks/trade_plan_drafting.md"
+    },
+    {
+      "task_id": "review_memory_summary",
+      "input_objects": [
+        "manual_note_record",
+        "trade_plan_card"
+      ],
+      "output_object": "memory_note",
+      "prompt_file": "prompts/tasks/review_memory_summary.md"
+    }
+  ]
+}

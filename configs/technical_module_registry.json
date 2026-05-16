@@ -1,0 +1,258 @@
+{
+  "version": "0.1.0",
+  "modules": [
+    {
+      "module_id": "TM001_line_a_trend_continuation",
+      "family": "trend_continuation",
+      "role": "candidate_generator",
+      "priority": "core",
+      "legacy_refs": [
+        "D:/Trading/run_line_a_simulation_pack.py",
+        "D:/Trading/run_line_a_variant_research.py",
+        "D:/TradingMain/research/tools/strategy_line_a_family.py"
+      ],
+      "market_regimes": ["risk_on", "selective"],
+      "style_bias": ["main_board", "large_mid_cap"],
+      "needs_intraday": false,
+      "description": "Main-board trend continuation and ranking-based holding logic.",
+      "scanner": {
+        "enabled": true,
+        "backend": "legacy_adapted",
+        "config": {
+          "strategy": "double_q60_top10",
+          "top_n": 6,
+          "keep_rank": 8,
+          "rebalance_step": 10
+        }
+      }
+    },
+    {
+      "module_id": "TM002_breakout_and_relative_strength",
+      "family": "trend_confirmation",
+      "role": "technical_confirmer",
+      "priority": "high",
+      "legacy_refs": [
+        "D:/Trading/run_buy_timing_04_rel_strength.py",
+        "D:/Trading/run_buy_timing_03_opening_pattern.py",
+        "D:/Trading/run_main_board_entry_rank_survival.py"
+      ],
+      "market_regimes": ["risk_on"],
+      "style_bias": ["hot_theme"],
+      "needs_intraday": false,
+      "description": "Breakout and relative-strength confirmation.",
+      "scanner": {
+        "enabled": true,
+        "backend": "legacy_adapted",
+        "config": {
+          "top_n": 12,
+          "keep_rank": 24,
+          "min_rs_zscore": 1.2
+        }
+      }
+    },
+    {
+      "module_id": "TM101_behavior_repair_rebound",
+      "family": "repair_rebound",
+      "role": "candidate_generator",
+      "priority": "core",
+      "legacy_refs": [
+        "D:/Trading/run_behavior_path_repair_live_pack.py",
+        "D:/Trading/run_recent_behavior_simulation_pack.py",
+        "D:/TradingMain/research/tools/strategy_behavior_state_family.py"
+      ],
+      "market_regimes": ["selective", "risk_on"],
+      "style_bias": ["repair_names"],
+      "needs_intraday": false,
+      "description": "Behavior repair and rebound-state candidate generation.",
+      "scanner": {
+        "enabled": true,
+        "backend": "legacy_adapted",
+        "config": {
+          "top_n": 8,
+          "keep_rank": 10
+        }
+      }
+    },
+    {
+      "module_id": "TM102_trend_repair_low_vol",
+      "family": "repair_filter",
+      "role": "risk_filter",
+      "priority": "high",
+      "legacy_refs": [
+        "D:/Trading/run_trend_repair_switch_simulation_pack.py",
+        "D:/Trading/strategy_line_guide.md"
+      ],
+      "market_regimes": ["selective"],
+      "style_bias": ["balanced"],
+      "needs_intraday": false,
+      "description": "Repair logic plus low-volatility filter.",
+      "scanner": {
+        "enabled": false,
+        "backend": "legacy_adapted",
+        "config": {}
+      }
+    },
+    {
+      "module_id": "TM201_group_rotation_repair",
+      "family": "group_rotation",
+      "role": "candidate_compressor",
+      "priority": "core",
+      "legacy_refs": [
+        "D:/Trading/run_sector_rotation_simulation_pack.py",
+        "D:/Trading/run_latent_group_behavior_bridge_simulation_pack.py",
+        "D:/TradingMain/research/tools/strategy_group_rotation_family.py"
+      ],
+      "market_regimes": ["risk_on", "selective"],
+      "style_bias": ["sector_rotation"],
+      "needs_intraday": false,
+      "description": "Pick strongest group first, then rank inside the group.",
+      "scanner": {
+        "enabled": true,
+        "backend": "legacy_adapted",
+        "config": {
+          "top_n": 8,
+          "keep_rank": 10
+        }
+      }
+    },
+    {
+      "module_id": "TM202_sector_rotation_and_industry_strength",
+      "family": "industry_strength",
+      "role": "theme_mapper",
+      "priority": "high",
+      "legacy_refs": [
+        "D:/Trading/projects/sector_rotation",
+        "D:/TradingMain/research/tools/strategy_industry_first_rotation.py"
+      ],
+      "market_regimes": ["risk_on", "selective"],
+      "style_bias": ["policy_theme"],
+      "needs_intraday": false,
+      "description": "Industry-first strength and rotation overlay.",
+      "scanner": {
+        "enabled": false,
+        "backend": "legacy_adapted",
+        "config": {}
+      }
+    },
+    {
+      "module_id": "TM301_volatility_compression_breakout",
+      "family": "compression_breakout",
+      "role": "watchlist_builder",
+      "priority": "medium",
+      "legacy_refs": [
+        "D:/Trading/projects/volatility_compression_release",
+        "D:/TradingMain/docs/STRATEGY_LINE_DESIGN.md"
+      ],
+      "market_regimes": ["selective", "risk_on"],
+      "style_bias": ["emerging_theme"],
+      "needs_intraday": false,
+      "description": "Pre-breakout compression and release setup.",
+      "scanner": {
+        "enabled": false,
+        "backend": "legacy_adapted",
+        "config": {}
+      }
+    },
+    {
+      "module_id": "TM302_low_vol_quality_filter",
+      "family": "low_vol_filter",
+      "role": "risk_filter",
+      "priority": "medium",
+      "legacy_refs": [
+        "D:/Trading/strategy_line_guide.md",
+        "D:/TradingMain/docs/STRATEGY_LINE_DESIGN.md"
+      ],
+      "market_regimes": ["selective", "risk_off"],
+      "style_bias": ["defensive"],
+      "needs_intraday": false,
+      "description": "Low-volatility and liquidity quality filter.",
+      "scanner": {
+        "enabled": false,
+        "backend": "internal",
+        "config": {}
+      }
+    },
+    {
+      "module_id": "TM401_gap_open_anchor",
+      "family": "entry_timing",
+      "role": "entry_timing",
+      "priority": "high",
+      "legacy_refs": [
+        "D:/Trading/run_buy_timing_01_gap_filter.py",
+        "D:/Trading/run_buy_timing_02_open_anchor.py"
+      ],
+      "market_regimes": ["risk_on"],
+      "style_bias": ["event_driven"],
+      "needs_intraday": true,
+      "description": "Gap and open-anchor timing for event-driven entries.",
+      "scanner": {
+        "enabled": false,
+        "backend": "legacy_adapted",
+        "config": {}
+      }
+    },
+    {
+      "module_id": "TM402_vwap_range_intraday_confirmation",
+      "family": "entry_timing",
+      "role": "intraday_confirmer",
+      "priority": "medium",
+      "legacy_refs": [
+        "D:/Trading/run_buy_timing_05_vwap_anchor.py",
+        "D:/Trading/run_buy_timing_06_range_position.py",
+        "D:/TradingMain/research/tools/strategy_intraday_minute.py"
+      ],
+      "market_regimes": ["risk_on", "selective"],
+      "style_bias": ["intraday_confirmed"],
+      "needs_intraday": true,
+      "description": "VWAP and intraday range confirmation.",
+      "scanner": {
+        "enabled": false,
+        "backend": "legacy_adapted",
+        "config": {}
+      }
+    },
+    {
+      "module_id": "TM501_market_state_dynamic",
+      "family": "market_state",
+      "role": "environment_filter",
+      "priority": "core",
+      "legacy_refs": [
+        "D:/Trading/projects/style_timing",
+        "D:/Trading/run_environment_policy_search_first_pass.py",
+        "D:/TradingMain/research/tools/strategy_market_state_dynamic.py"
+      ],
+      "market_regimes": ["risk_on", "selective", "risk_off"],
+      "style_bias": ["all"],
+      "needs_intraday": false,
+      "description": "Dynamic market-state overlay for switching playbooks.",
+      "scanner": {
+        "enabled": false,
+        "backend": "internal",
+        "config": {}
+      }
+    },
+    {
+      "module_id": "TM601_capital_flow_overlay",
+      "family": "capital_overlay",
+      "role": "ranking_adjuster",
+      "priority": "high",
+      "legacy_refs": [
+        "D:/Trading/run_top_n_comparison_analysis.py",
+        "D:/TradingMain/research/tools/strategy_capital_flow_family.py",
+        "D:/TradingMain/research/CURRENT_INDEX.md"
+      ],
+      "market_regimes": ["risk_on", "selective"],
+      "style_bias": ["crowding_aware"],
+      "needs_intraday": false,
+      "description": "Crowding and capital-flow aware ranking adjustment.",
+      "scanner": {
+        "enabled": true,
+        "backend": "legacy_adapted",
+        "config": {
+          "top_n": 10,
+          "keep_rank": 15
+        }
+      }
+    }
+  ]
+}

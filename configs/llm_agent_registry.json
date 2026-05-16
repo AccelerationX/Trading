@@ -1,0 +1,71 @@
+{
+  "version": "0.1.0",
+  "agents": [
+    {
+      "agent_id": "event_deepening_agent",
+      "task_id": "event_analysis",
+      "role": "event_interpreter",
+      "trigger_object": "event_card",
+      "trigger_rule": "risk_flags contains needs_llm_review",
+      "input_objects": ["event_card"],
+      "output_contract": "event_card_enrichment",
+      "priority": "high",
+      "prompt_file": "prompts/tasks/event_analysis.md"
+    },
+    {
+      "agent_id": "theme_deepening_agent",
+      "task_id": "theme_mapping",
+      "role": "theme_mapper",
+      "trigger_object": "theme_card",
+      "trigger_rule": "continuation_guess equals needs_review or priority_industries empty",
+      "input_objects": ["theme_card"],
+      "output_contract": "theme_card_enrichment",
+      "priority": "high",
+      "prompt_file": "prompts/tasks/theme_mapping.md"
+    },
+    {
+      "agent_id": "capital_interpret_agent",
+      "task_id": "capital_behavior_summary",
+      "role": "capital_flow_interpreter",
+      "trigger_object": "capital_behavior_card",
+      "trigger_rule": "participation_strength high or warning_flags not empty",
+      "input_objects": ["capital_behavior_card"],
+      "output_contract": "capital_behavior_enrichment",
+      "priority": "medium",
+      "prompt_file": "prompts/tasks/capital_behavior_summary.md"
+    },
+    {
+      "agent_id": "candidate_diagnosis_agent",
+      "task_id": "candidate_diagnosis",
+      "role": "candidate_diagnostician",
+      "trigger_object": "candidate_card",
+      "trigger_rule": "candidate_score above threshold or flagged for tradeability review",
+      "input_objects": ["candidate_card", "event_card", "theme_card", "capital_behavior_card", "market_regime_snapshot"],
+      "output_contract": "candidate_card_diagnosis",
+      "priority": "high",
+      "prompt_file": "prompts/tasks/candidate_diagnosis.md"
+    },
+    {
+      "agent_id": "trade_plan_refine_agent",
+      "task_id": "trade_plan_drafting",
+      "role": "trade_plan_refiner",
+      "trigger_object": "trade_plan_card",
+      "trigger_rule": "action in [buy_pilot, watch_only]",
+      "input_objects": ["trade_plan_card", "candidate_card", "market_regime_snapshot"],
+      "output_contract": "trade_plan_refinement",
+      "priority": "high",
+      "prompt_file": "prompts/tasks/trade_plan_drafting.md"
+    },
+    {
+      "agent_id": "review_memory_agent",
+      "task_id": "review_memory_summary",
+      "role": "review_summarizer",
+      "trigger_object": "review_memory_entry",
+      "trigger_rule": "always",
+      "input_objects": ["review_memory_entry"],
+      "output_contract": "review_memory_enrichment",
+      "priority": "medium",
+      "prompt_file": "prompts/tasks/review_memory_summary.md"
+    }
+  ]
+}

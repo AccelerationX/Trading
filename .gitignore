@@ -1,0 +1,27 @@
+.env
+.pytest_cache/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Generated reports and runtime artifacts
+outputs/
+workspace/llm_requests/
+workspace/llm_responses/
+workspace/_test_*.py
+workspace/portfolio/current_holdings.json
+
+# Local data caches and generated layers
+data/inbox/**
+!data/inbox/README.md
+data/processed/
+data/snapshots/
+data/raw/1m_price/
+data/raw/stock_history/
+
+# Optional local virtualenvs / editor files
+.venv/
+venv/
+.idea/
+.vscode/

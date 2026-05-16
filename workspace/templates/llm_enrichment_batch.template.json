@@ -1,0 +1,19 @@
+[
+  {
+    "trade_date": "2026-05-06",
+    "packet_id": "2026-05-06_event_deepening_agent_example_packet",
+    "agent_id": "event_deepening_agent",
+    "target_object_type": "event_card",
+    "target_object_id": "2026-05-06_000001.SZ_1_example",
+    "contract_type": "event_card_enrichment",
+    "summary": "This announcement is a real order-win catalyst with multi-day relevance, but follow-through still depends on sector confirmation.",
+    "confidence": 0.74,
+    "structured_payload": {
+      "sentiment_verdict": "constructive_but_needs_confirmation",
+      "beneficiary_stocks": ["000001.SZ"],
+      "risk_notes": ["watch opening follow-through", "avoid chasing if theme breadth is weak"]
+    },
+    "citations": ["official_announcement"],
+    "warnings": []
+  }
+]

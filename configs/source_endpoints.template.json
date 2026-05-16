@@ -1,0 +1,114 @@
+{
+  "version": "0.1.0",
+  "description": "Template source connector settings for A-tier inputs",
+  "sources": [
+    {
+      "id": "market_equity_daily",
+      "connector_kind": "file_drop",
+      "enabled": true,
+      "required": true,
+      "input_path": "data/inbox/market_equity_daily",
+      "file_patterns": ["*.csv", "*.parquet", "*.json"],
+      "notes": "Drop daily equity bar files here."
+    },
+    {
+      "id": "market_index_daily",
+      "connector_kind": "file_drop",
+      "enabled": true,
+      "required": true,
+      "input_path": "data/inbox/market_index_daily",
+      "file_patterns": ["*.csv", "*.parquet", "*.json"],
+      "notes": "Drop daily index files here."
+    },
+    {
+      "id": "market_breadth_and_limit_structure",
+      "connector_kind": "file_drop",
+      "enabled": true,
+      "required": true,
+      "input_path": "data/inbox/market_breadth_and_limit_structure",
+      "file_patterns": ["*.csv", "*.json"],
+      "notes": "Drop breadth and limit structure summaries here."
+    },
+    {
+      "id": "equity_reference_master",
+      "connector_kind": "file_drop",
+      "enabled": true,
+      "required": true,
+      "input_path": "data/inbox/equity_reference_master",
+      "file_patterns": ["*.csv", "*.parquet", "*.json"],
+      "notes": "Drop equity reference tables here."
+    },
+    {
+      "id": "exchange_filings",
+      "connector_kind": "file_drop",
+      "enabled": true,
+      "required": true,
+      "input_path": "data/inbox/exchange_filings",
+      "file_patterns": ["*.json", "*.txt", "*.html", "*.md", "*.pdf"],
+      "notes": "Drop official filing payloads here."
+    },
+    {
+      "id": "company_announcements_structured",
+      "connector_kind": "file_drop",
+      "enabled": true,
+      "required": false,
+      "input_path": "data/inbox/company_announcements_structured",
+      "file_patterns": ["*.json", "*.csv"],
+      "notes": "Drop structured announcement extracts here."
+    },
+    {
+      "id": "policy_primary_documents",
+      "connector_kind": "file_drop",
+      "enabled": true,
+      "required": true,
+      "input_path": "data/inbox/policy_primary_documents",
+      "file_patterns": ["*.json", "*.txt", "*.html", "*.md", "*.pdf"],
+      "notes": "Drop policy and regulation source documents here."
+    },
+    {
+      "id": "industry_catalyst_calendar",
+      "connector_kind": "file_drop",
+      "enabled": true,
+      "required": false,
+      "input_path": "data/inbox/industry_catalyst_calendar",
+      "file_patterns": ["*.json", "*.csv", "*.md"],
+      "notes": "Drop industry catalyst calendar records here."
+    },
+    {
+      "id": "dragon_tiger_board",
+      "connector_kind": "file_drop",
+      "enabled": true,
+      "required": true,
+      "input_path": "data/inbox/dragon_tiger_board",
+      "file_patterns": ["*.csv", "*.json"],
+      "notes": "Drop dragon tiger board data here."
+    },
+    {
+      "id": "northbound_and_margin_flow",
+      "connector_kind": "file_drop",
+      "enabled": true,
+      "required": false,
+      "input_path": "data/inbox/northbound_and_margin_flow",
+      "file_patterns": ["*.csv", "*.json"],
+      "notes": "Drop northbound and margin flow data here."
+    },
+    {
+      "id": "block_trade_and_abnormal_volume",
+      "connector_kind": "file_drop",
+      "enabled": true,
+      "required": false,
+      "input_path": "data/inbox/block_trade_and_abnormal_volume",
+      "file_patterns": ["*.csv", "*.json"],
+      "notes": "Drop block trade and abnormal volume data here."
+    },
+    {
+      "id": "account_constraints",
+      "connector_kind": "manual",
+      "enabled": true,
+      "required": true,
+      "input_path": "data/inbox/account_constraints",
+      "file_patterns": ["*.json"],
+      "notes": "Drop the active account profile here."
+    }
+  ]
+}

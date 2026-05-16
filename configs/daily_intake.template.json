@@ -1,0 +1,22 @@
+{
+  "version": "0.1.0",
+  "run_name": "default_daily_intake",
+  "copy_inputs_to_snapshot": true,
+  "required_source_ids": [
+    "market_equity_daily",
+    "market_index_daily",
+    "market_breadth_and_limit_structure",
+    "equity_reference_master",
+    "exchange_filings",
+    "policy_primary_documents",
+    "dragon_tiger_board",
+    "account_constraints"
+  ],
+  "optional_source_ids": [
+    "company_announcements_structured",
+    "industry_catalyst_calendar",
+    "northbound_and_margin_flow",
+    "block_trade_and_abnormal_volume"
+  ],
+  "notes": "This template defines the first-stage A-tier intake plan."
+}

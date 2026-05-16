@@ -1,0 +1,16 @@
+{
+  "as_of": "",
+  "broker": "",
+  "cash_cny": null,
+  "positions": [
+    {
+      "stock_code": "000001.SZ",
+      "stock_name": "",
+      "shares": 0,
+      "available_shares": 0,
+      "cost_basis": null,
+      "notes": ""
+    }
+  ],
+  "notes": ""
+}

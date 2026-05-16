@@ -1,0 +1,423 @@
+{
+  "version": "0.1.0",
+  "description": "TradingSystem information source registry",
+  "sources": [
+    {
+      "id": "market_equity_daily",
+      "name": "Equity Daily Market Bars",
+      "family": "market",
+      "tier": "A",
+      "trust_level": "S",
+      "structure_level": "structured",
+      "timeliness": "daily",
+      "llm_dependency": "none",
+      "purpose": [
+        "candidate_generation",
+        "market_structure",
+        "technical_state"
+      ],
+      "required_fields": [
+        "stock_code",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "amount"
+      ],
+      "output_objects": [
+        "candidate_card",
+        "market_regime_snapshot"
+      ]
+    },
+    {
+      "id": "market_index_daily",
+      "name": "Index Daily Market Bars",
+      "family": "market",
+      "tier": "A",
+      "trust_level": "S",
+      "structure_level": "structured",
+      "timeliness": "daily",
+      "llm_dependency": "none",
+      "purpose": [
+        "market_regime",
+        "style_detection"
+      ],
+      "required_fields": [
+        "index_code",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "output_objects": [
+        "market_regime_snapshot"
+      ]
+    },
+    {
+      "id": "market_breadth_and_limit_structure",
+      "name": "Market Breadth and Limit Structure",
+      "family": "market",
+      "tier": "A",
+      "trust_level": "S",
+      "structure_level": "structured",
+      "timeliness": "daily",
+      "llm_dependency": "summary_only",
+      "purpose": [
+        "market_regime",
+        "trading_window_judgement"
+      ],
+      "required_fields": [
+        "trade_date",
+        "limit_up_count",
+        "limit_down_count",
+        "broken_limit_up_count",
+        "total_turnover"
+      ],
+      "output_objects": [
+        "market_regime_snapshot"
+      ]
+    },
+    {
+      "id": "exchange_filings",
+      "name": "Exchange Filings",
+      "family": "filings",
+      "tier": "A",
+      "trust_level": "S",
+      "structure_level": "semi_structured",
+      "timeliness": "event_driven",
+      "llm_dependency": "required",
+      "purpose": [
+        "event_detection",
+        "risk_screening",
+        "catalyst_detection"
+      ],
+      "required_fields": [
+        "stock_code",
+        "title",
+        "publish_time",
+        "full_text_path"
+      ],
+      "output_objects": [
+        "event_card"
+      ]
+    },
+    {
+      "id": "company_announcements_structured",
+      "name": "Structured Company Announcements",
+      "family": "filings",
+      "tier": "A",
+      "trust_level": "S",
+      "structure_level": "semi_structured",
+      "timeliness": "event_driven",
+      "llm_dependency": "required",
+      "purpose": [
+        "event_extraction",
+        "announcement_summary"
+      ],
+      "required_fields": [
+        "stock_code",
+        "filing_type",
+        "title",
+        "publish_time"
+      ],
+      "output_objects": [
+        "event_card"
+      ]
+    },
+    {
+      "id": "policy_primary_documents",
+      "name": "Primary Policy Documents",
+      "family": "policy",
+      "tier": "A",
+      "trust_level": "S",
+      "structure_level": "text",
+      "timeliness": "event_driven",
+      "llm_dependency": "required",
+      "purpose": [
+        "theme_detection",
+        "industry_mapping",
+        "policy_analysis"
+      ],
+      "required_fields": [
+        "title",
+        "issuing_body",
+        "publish_time",
+        "full_text_path"
+      ],
+      "output_objects": [
+        "theme_card"
+      ]
+    },
+    {
+      "id": "industry_catalyst_calendar",
+      "name": "Industry Catalyst Calendar",
+      "family": "policy",
+      "tier": "A",
+      "trust_level": "A",
+      "structure_level": "semi_structured",
+      "timeliness": "event_driven",
+      "llm_dependency": "required",
+      "purpose": [
+        "theme_followup",
+        "event_calendar"
+      ],
+      "required_fields": [
+        "title",
+        "publish_time",
+        "summary_text"
+      ],
+      "output_objects": [
+        "theme_card"
+      ]
+    },
+    {
+      "id": "dragon_tiger_board",
+      "name": "Dragon Tiger Board",
+      "family": "capital_flow",
+      "tier": "A",
+      "trust_level": "A",
+      "structure_level": "semi_structured",
+      "timeliness": "daily",
+      "llm_dependency": "summary_only",
+      "purpose": [
+        "capital_confirmation",
+        "seat_behavior_analysis"
+      ],
+      "required_fields": [
+        "stock_code",
+        "trade_date",
+        "buy_amount",
+        "sell_amount"
+      ],
+      "output_objects": [
+        "capital_behavior_card"
+      ]
+    },
+    {
+      "id": "northbound_and_margin_flow",
+      "name": "Northbound and Margin Flow",
+      "family": "capital_flow",
+      "tier": "A",
+      "trust_level": "A",
+      "structure_level": "structured",
+      "timeliness": "daily",
+      "llm_dependency": "summary_only",
+      "purpose": [
+        "market_regime",
+        "capital_preference"
+      ],
+      "required_fields": [
+        "trade_date",
+        "net_amount"
+      ],
+      "output_objects": [
+        "capital_behavior_card",
+        "market_regime_snapshot"
+      ]
+    },
+    {
+      "id": "block_trade_and_abnormal_volume",
+      "name": "Block Trade and Abnormal Volume",
+      "family": "capital_flow",
+      "tier": "A",
+      "trust_level": "A",
+      "structure_level": "structured",
+      "timeliness": "daily",
+      "llm_dependency": "summary_only",
+      "purpose": [
+        "capital_warning",
+        "abnormal_flow_detection"
+      ],
+      "required_fields": [
+        "stock_code",
+        "trade_date",
+        "capital_signal_type"
+      ],
+      "output_objects": [
+        "capital_behavior_card"
+      ]
+    },
+    {
+      "id": "equity_reference_master",
+      "name": "Equity Reference Master",
+      "family": "reference",
+      "tier": "A",
+      "trust_level": "S",
+      "structure_level": "structured",
+      "timeliness": "low_frequency",
+      "llm_dependency": "none",
+      "purpose": [
+        "industry_mapping",
+        "concept_mapping",
+        "candidate_expansion"
+      ],
+      "required_fields": [
+        "stock_code",
+        "industry",
+        "concepts",
+        "listing_date"
+      ],
+      "output_objects": [
+        "candidate_card",
+        "theme_card"
+      ]
+    },
+    {
+      "id": "account_constraints",
+      "name": "Account Constraints",
+      "family": "manual",
+      "tier": "A",
+      "trust_level": "S",
+      "structure_level": "structured",
+      "timeliness": "user_defined",
+      "llm_dependency": "none",
+      "purpose": [
+        "position_sizing",
+        "execution_filtering"
+      ],
+      "required_fields": [
+        "capital_total",
+        "single_position_max_pct",
+        "max_holdings"
+      ],
+      "output_objects": [
+        "trade_plan_card"
+      ]
+    },
+    {
+      "id": "financial_news_wire",
+      "name": "Financial News Wire",
+      "family": "news",
+      "tier": "B",
+      "trust_level": "A",
+      "structure_level": "text",
+      "timeliness": "intraday",
+      "llm_dependency": "required",
+      "purpose": [
+        "headline_monitoring",
+        "theme_detection"
+      ],
+      "required_fields": [
+        "title",
+        "publish_time",
+        "content_text"
+      ],
+      "output_objects": [
+        "event_card",
+        "theme_card"
+      ]
+    },
+    {
+      "id": "mainstream_finance_media_analysis",
+      "name": "Mainstream Finance Media Analysis",
+      "family": "news",
+      "tier": "B",
+      "trust_level": "A",
+      "structure_level": "text",
+      "timeliness": "intraday",
+      "llm_dependency": "required",
+      "purpose": [
+        "narrative_context",
+        "theme_background"
+      ],
+      "required_fields": [
+        "title",
+        "publish_time",
+        "content_text"
+      ],
+      "output_objects": [
+        "theme_card"
+      ]
+    },
+    {
+      "id": "sell_side_research_reports",
+      "name": "Sell-side Research Reports",
+      "family": "research",
+      "tier": "B",
+      "trust_level": "B",
+      "structure_level": "text",
+      "timeliness": "low_frequency",
+      "llm_dependency": "required",
+      "purpose": [
+        "industry_depth",
+        "medium_term_logic"
+      ],
+      "required_fields": [
+        "title",
+        "publish_time",
+        "content_text"
+      ],
+      "output_objects": [
+        "theme_card",
+        "candidate_card"
+      ]
+    },
+    {
+      "id": "fundamental_deep_tables",
+      "name": "Fundamental Deep Tables",
+      "family": "research",
+      "tier": "B",
+      "trust_level": "A",
+      "structure_level": "structured",
+      "timeliness": "low_frequency",
+      "llm_dependency": "summary_only",
+      "purpose": [
+        "valuation_filtering",
+        "fundamental_risk_check"
+      ],
+      "required_fields": [
+        "stock_code",
+        "report_period"
+      ],
+      "output_objects": [
+        "candidate_card"
+      ]
+    },
+    {
+      "id": "intraday_microstructure",
+      "name": "Intraday Microstructure",
+      "family": "market",
+      "tier": "B",
+      "trust_level": "A",
+      "structure_level": "structured",
+      "timeliness": "intraday",
+      "llm_dependency": "summary_only",
+      "purpose": [
+        "entry_timing",
+        "intraday_confirmation"
+      ],
+      "required_fields": [
+        "stock_code",
+        "bar_time"
+      ],
+      "output_objects": [
+        "trade_plan_card"
+      ]
+    },
+    {
+      "id": "manual_market_notes",
+      "name": "Manual Market Notes",
+      "family": "manual",
+      "tier": "B",
+      "trust_level": "S",
+      "structure_level": "text",
+      "timeliness": "user_defined",
+      "llm_dependency": "required",
+      "purpose": [
+        "subjective_observation",
+        "experience_memory"
+      ],
+      "required_fields": [
+        "created_time",
+        "content_text"
+      ],
+      "output_objects": [
+        "trade_plan_card",
+        "memory_note"
+      ]
+    }
+  ]
+}

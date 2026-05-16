@@ -1,0 +1,94 @@
+{
+  "version": "0.1.0",
+  "providers": [
+    {
+      "provider_id": "ollama_local_primary",
+      "enabled": true,
+      "provider_type": "ollama_chat",
+      "default_model": "gpt-oss:20b",
+      "api_key_env": "",
+      "api_base_env": "OLLAMA_BASE_URL",
+      "api_base_default": "http://127.0.0.1:11434",
+      "timeout_seconds": 180,
+      "max_retries": 1,
+      "supports_json_mode": true,
+      "agent_overrides": [
+        {
+          "agent_id": "review_memory_agent",
+          "model": "gpt-oss:20b"
+        }
+      ],
+      "agent_allowlist": [
+        "event_deepening_agent",
+        "theme_deepening_agent",
+        "capital_interpret_agent",
+        "review_memory_agent"
+      ]
+    },
+    {
+      "provider_id": "moonshot_kimi_primary",
+      "enabled": false,
+      "provider_type": "openai_compatible",
+      "default_model": "kimi-k2.5",
+      "api_key_env": "MOONSHOT_API_KEY",
+      "api_base_env": "MOONSHOT_BASE_URL",
+      "api_base_default": "https://api.moonshot.cn/v1",
+      "timeout_seconds": 90,
+      "max_retries": 2,
+      "supports_json_mode": false,
+      "agent_overrides": [
+        {
+          "agent_id": "event_deepening_agent",
+          "model": "kimi-k2.5"
+        },
+        {
+          "agent_id": "theme_deepening_agent",
+          "model": "kimi-k2.5"
+        },
+        {
+          "agent_id": "capital_interpret_agent",
+          "model": "kimi-k2.5"
+        },
+        {
+          "agent_id": "trade_plan_refine_agent",
+          "model": "moonshot-v1-auto"
+        },
+        {
+          "agent_id": "review_memory_agent",
+          "model": "kimi-k2.5"
+        }
+      ],
+      "agent_allowlist": [
+        "trade_plan_refine_agent"
+      ]
+    },
+    {
+      "provider_id": "manual_workspace_stub",
+      "enabled": true,
+      "provider_type": "manual_workspace",
+      "default_model": "manual-review",
+      "api_key_env": "",
+      "api_base_env": "",
+      "api_base_default": "",
+      "timeout_seconds": 0,
+      "max_retries": 0,
+      "supports_json_mode": false,
+      "agent_overrides": [],
+      "agent_allowlist": []
+    },
+    {
+      "provider_id": "mock_contract_stub",
+      "enabled": false,
+      "provider_type": "mock_contract",
+      "default_model": "mock-contract-v1",
+      "api_key_env": "",
+      "api_base_env": "",
+      "api_base_default": "",
+      "timeout_seconds": 0,
+      "max_retries": 0,
+      "supports_json_mode": true,
+      "agent_overrides": [],
+      "agent_allowlist": []
+    }
+  ]
+}
