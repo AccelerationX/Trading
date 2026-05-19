@@ -11,6 +11,7 @@ workspace/llm_requests/
 workspace/llm_responses/
 workspace/_test_*.py
 workspace/portfolio/current_holdings.json
+workspace/portfolio/system_trade_log.json
 
 # Local data caches and generated layers
 data/inbox/**

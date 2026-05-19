@@ -92,6 +92,48 @@ def _provider_supports_agent(provider: LLMProviderConfig, agent_id: str) -> bool
     return not provider.agent_allowlist or agent_id in provider.agent_allowlist
 
 
+def _provider_credentials_ready(provider: LLMProviderConfig, env: dict[str, str]) -> bool:
+    api_key_required = bool(provider.api_key_env)
+    api_base_required = bool(provider.api_base_env) and not provider.api_base_default
+    api_key_present = bool(provider.api_key_env and env.get(provider.api_key_env))
+    api_base_present = bool(provider.api_base_env and env.get(provider.api_base_env))
+    return (not api_key_required or api_key_present) and (not api_base_required or api_base_present)
+
+
+def _packet_prefers_remote(packet: LLMWorkPacket) -> bool:
+    if packet.agent_id in {"candidate_diagnosis_agent", "trade_plan_refine_agent"}:
+        return True
+    return False
+
+
+def _provider_priority_for_packet(provider: LLMProviderConfig, packet: LLMWorkPacket, env: dict[str, str]) -> tuple[int, int, str]:
+    remote_ready = provider.provider_type == "openai_compatible" and _provider_credentials_ready(provider, env)
+    local_provider = provider.provider_type in {"ollama_chat", "local_ollama"}
+    manual_provider = provider.provider_type == "manual_workspace"
+    mock_provider = provider.provider_type == "mock_contract"
+
+    if _packet_prefers_remote(packet):
+        if remote_ready:
+            return (0, 0, provider.provider_id)
+        if local_provider:
+            return (1, 0, provider.provider_id)
+        if mock_provider:
+            return (2, 0, provider.provider_id)
+        if manual_provider:
+            return (3, 0, provider.provider_id)
+        return (4, 0, provider.provider_id)
+
+    if local_provider:
+        return (0, 0, provider.provider_id)
+    if remote_ready:
+        return (1, 0, provider.provider_id)
+    if mock_provider:
+        return (2, 0, provider.provider_id)
+    if manual_provider:
+        return (3, 0, provider.provider_id)
+    return (4, 0, provider.provider_id)
+
+
 def resolve_llm_execution_routes(
     packets: list[LLMWorkPacket],
     providers: list[LLMProviderConfig],
@@ -146,7 +188,7 @@ def resolve_llm_execution_routes(
                 )
             )
             continue
-
+        matching_providers.sort(key=lambda provider: _provider_priority_for_packet(provider, packet, env))
         provider = matching_providers[0]
         model = _resolve_provider_model(provider, packet.agent_id)
         api_key_required = bool(provider.api_key_env)
@@ -164,6 +206,10 @@ def resolve_llm_execution_routes(
             notes.append("missing_api_base")
         if not api_key_required:
             notes.append("no_api_key_required")
+        if _packet_prefers_remote(packet):
+            notes.append("routing_policy=remote_core")
+        else:
+            notes.append("routing_policy=local_bulk")
         routes.append(
             LLMExecutionRoute(
                 packet_id=packet.packet_id,

@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "sources": [
+    {
+      "id": "cls_telegraph",
+      "parser_kind": "cls_mobile_telegraph",
+      "url": "https://m.cls.cn/telegraph",
+      "source_name": "\u8d22\u8054\u793e",
+      "enabled": true
+    },
+    {
+      "id": "eastmoney_fastnews",
+      "parser_kind": "eastmoney_fastnews",
+      "url": "https://kuaixun.eastmoney.com/7_24.html",
+      "source_name": "\u4e1c\u65b9\u8d22\u5bcc",
+      "enabled": true,
+      "options": {
+        "page_size": 40,
+        "fast_column": "102",
+        "api_url": "https://np-weblist.eastmoney.com/comm/web/getFastNewsList"
+      }
+    },
+    {
+      "id": "ths_fastnews",
+      "parser_kind": "ths_fastnews",
+      "url": "https://news.10jqka.com.cn/gdkx_list/",
+      "source_name": "\u540c\u82b1\u987a",
+      "enabled": false
+    }
+  ]
+}

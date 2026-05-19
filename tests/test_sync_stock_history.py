@@ -122,6 +122,46 @@ class SyncStockHistoryTest(unittest.TestCase):
             self.assertEqual(len(repaired), 1)
             self.assertIn("20260506", repaired.to_csv(index=False))
 
+    def test_sync_stock_history_cache_only_updates_panel_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_root = Path(tmp_dir)
+            inbox = tmp_root / "inbox"
+            outputs = tmp_root / "outputs"
+            raw = tmp_root / "raw"
+            processed = tmp_root / "processed"
+            (inbox / "market_equity_daily").mkdir(parents=True, exist_ok=True)
+            (inbox / "equity_reference_master").mkdir(parents=True, exist_ok=True)
+            outputs.mkdir(parents=True, exist_ok=True)
+            raw.mkdir(parents=True, exist_ok=True)
+            processed.mkdir(parents=True, exist_ok=True)
+
+            _sample_market_frame().to_csv(
+                inbox / "market_equity_daily" / "market_equity_daily_20260506.csv",
+                index=False,
+                encoding="utf-8-sig",
+            )
+            _sample_reference_frame().to_csv(
+                inbox / "equity_reference_master" / "equity_reference_master_20260506.csv",
+                index=False,
+                encoding="utf-8-sig",
+            )
+
+            with patch("trading_system.cli.sync_stock_history.INBOX_DIR", inbox), \
+                patch("trading_system.cli.sync_stock_history.OUTPUTS_DIR", outputs), \
+                patch("trading_system.cli.sync_stock_history.RAW_DATA_DIR", raw), \
+                patch("trading_system.signal.legacy.data_loader.PROCESSED_DATA_DIR", processed):
+                json_path, md_path = sync_stock_history_from_market_daily("20260506", sync_mode="cache_only")
+
+            self.assertTrue(json_path.exists())
+            self.assertTrue(md_path.exists())
+            stock_path = raw / "stock_history" / "000001.SZ.csv"
+            self.assertFalse(stock_path.exists())
+            cache_path = processed / "legacy" / "stock_history_panel.parquet"
+            self.assertTrue(cache_path.exists())
+            cache_df = pd.read_parquet(cache_path)
+            self.assertEqual(len(cache_df), 1)
+            self.assertIn("000001.SZ", cache_df["stock_code"].astype(str).tolist())
+
 
 if __name__ == "__main__":
     unittest.main()

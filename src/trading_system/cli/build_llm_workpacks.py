@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from trading_system.config.paths import OUTPUTS_DIR, PROCESSED_DATA_DIR
@@ -9,15 +10,9 @@ from trading_system.context.cards import CandidateCard, CapitalBehaviorCard, Eve
 from trading_system.context.text_signal_support import find_relevant_text_signals, load_text_signal_watch, text_signal_focus_summary
 from trading_system.decision.account import AccountConstraints
 from trading_system.integrations.llm_contracts import LLMWorkPacket, load_llm_agent_registry, save_llm_workpacks
+from trading_system.integrations.llm_profiles import resolve_llm_runtime_profile, supported_llm_modes
 from trading_system.memory.models import ReviewMemoryEntry
 from trading_system.reporting.llm_workpack_reports import render_llm_workpacks_markdown
-
-MAX_EVENT_PACKETS = 120
-MAX_THEME_PACKETS = 40
-MAX_CAPITAL_PACKETS = 80
-MAX_CANDIDATE_PACKETS = 20
-MAX_TRADE_PLAN_PACKETS = 20
-MAX_REVIEW_MEMORY_PACKETS = 50
 
 
 def _load_json(path: Path) -> object:
@@ -79,6 +74,37 @@ def _load_account_constraints() -> AccountConstraints | None:
     if not path.exists():
         return None
     return AccountConstraints(**dict(_load_json(path)))
+
+
+def _safe_packet_token(value: str) -> str:
+    compact = re.sub(r"[^0-9A-Za-z._-]+", "_", value.strip())
+    compact = compact.strip("._-")
+    return compact or "unknown"
+
+
+def _packet_id(trade_date: str, agent_id: str, object_id: str) -> str:
+    return f"{trade_date}_{_safe_packet_token(agent_id)}_{_safe_packet_token(object_id)}"
+
+
+def _apply_profile_budget(packets: list[LLMWorkPacket], mode: str) -> list[LLMWorkPacket]:
+    profile = resolve_llm_runtime_profile(mode)
+    budgets = dict(profile.packet_budget_by_family)
+    selected: list[LLMWorkPacket] = []
+    counts: dict[str, int] = {}
+    for packet in packets:
+        family = packet.packet_family or "unknown"
+        budget = budgets.get(family)
+        if budget is None:
+            selected.append(packet)
+            continue
+        if budget <= 0:
+            continue
+        used = counts.get(family, 0)
+        if used >= budget:
+            continue
+        counts[family] = used + 1
+        selected.append(packet)
+    return selected
 
 
 def _event_packet_rank(card: EventCard) -> tuple[float, float, int]:
@@ -297,7 +323,8 @@ def _market_brief(snapshot: MarketRegimeSnapshot | None) -> dict:
     }
 
 
-def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
+def build_llm_workpacks(trade_date: str, *, mode: str = "full") -> list[LLMWorkPacket]:
+    full_profile = resolve_llm_runtime_profile("full")
     registry = {spec.agent_id: spec for spec in load_llm_agent_registry()}
     market_regime = _load_market_regime(trade_date)
     account_constraints = _load_account_constraints()
@@ -307,13 +334,16 @@ def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
     event_spec = registry["event_deepening_agent"]
     event_cards = [card for card in _load_event_cards(trade_date) if _should_send_event_card(card)]
     event_cards.sort(key=lambda card: (_event_watch_priority(card, text_watch_records), *_event_packet_rank(card)), reverse=True)
-    for idx, card in enumerate(event_cards[:MAX_EVENT_PACKETS], start=1):
+    event_budget = full_profile.packet_budget_by_family["event"]
+    for idx, card in enumerate(event_cards[:event_budget], start=1):
         watch_records = []
         for stock_code in card.stock_codes:
             watch_records.extend(find_relevant_text_signals(text_watch_records, stock_code=stock_code, industry_tags=card.industry_tags, limit=2))
+        watch_priority = _event_watch_priority(card, text_watch_records)
+        runtime_tier = "critical" if "negative_event_check" in card.risk_flags or watch_priority >= 110 else "important"
         packets.append(
             LLMWorkPacket(
-                packet_id=f"{trade_date}_{event_spec.agent_id}_{card.event_id}",
+                packet_id=_packet_id(trade_date, event_spec.agent_id, card.event_id),
                 trade_date=trade_date,
                 agent_id=event_spec.agent_id,
                 task_id=event_spec.task_id,
@@ -333,6 +363,8 @@ def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
                     "text_watch_titles": [record.get("title", "") for record in watch_records[:2]],
                 },
                 expected_output_contract=event_spec.output_contract,
+                packet_family="event",
+                runtime_tier=runtime_tier,
                 notes=[
                     "rules_triggered=needs_llm_review",
                     f"text_watch_focus={text_signal_focus_summary(watch_records)}" if watch_records else "text_watch_focus=none",
@@ -343,15 +375,17 @@ def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
     theme_spec = registry["theme_deepening_agent"]
     theme_cards = [card for card in _load_theme_cards(trade_date) if _should_send_theme_card(card)]
     theme_cards.sort(key=lambda card: (_theme_watch_priority(card, text_watch_records), *_theme_packet_rank(card)), reverse=True)
-    for idx, card in enumerate(theme_cards[:MAX_THEME_PACKETS], start=1):
+    theme_budget = full_profile.packet_budget_by_family["theme"]
+    for idx, card in enumerate(theme_cards[:theme_budget], start=1):
         watch_records = []
         for stock_code in card.priority_stocks[:3]:
             watch_records.extend(find_relevant_text_signals(text_watch_records, stock_code=stock_code, industry_tags=card.priority_industries, limit=2))
         if not watch_records:
             watch_records = find_relevant_text_signals(text_watch_records, industry_tags=card.priority_industries, limit=2)
+        watch_priority = _theme_watch_priority(card, text_watch_records)
         packets.append(
             LLMWorkPacket(
-                packet_id=f"{trade_date}_{theme_spec.agent_id}_{card.theme_id}",
+                packet_id=_packet_id(trade_date, theme_spec.agent_id, card.theme_id),
                 trade_date=trade_date,
                 agent_id=theme_spec.agent_id,
                 task_id=theme_spec.task_id,
@@ -370,6 +404,8 @@ def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
                     "text_watch_titles": [record.get("title", "") for record in watch_records[:2]],
                 },
                 expected_output_contract=theme_spec.output_contract,
+                packet_family="theme",
+                runtime_tier="critical" if watch_priority >= 110 else "important",
                 notes=[
                     "rules_triggered=theme_needs_mapping",
                     f"text_watch_focus={text_signal_focus_summary(watch_records)}" if watch_records else "text_watch_focus=none",
@@ -380,10 +416,12 @@ def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
     capital_spec = registry["capital_interpret_agent"]
     capital_cards = [card for card in _load_capital_cards(trade_date) if _should_send_capital_card(card)]
     capital_cards.sort(key=_capital_packet_rank, reverse=True)
-    for idx, card in enumerate(capital_cards[:MAX_CAPITAL_PACKETS], start=1):
+    capital_budget = full_profile.packet_budget_by_family["capital"]
+    for idx, card in enumerate(capital_cards[:capital_budget], start=1):
+        runtime_tier = "important" if card.warning_flags or card.support_or_distribution == "distribution" else "standard"
         packets.append(
             LLMWorkPacket(
-                packet_id=f"{trade_date}_{capital_spec.agent_id}_{card.card_id}",
+                packet_id=_packet_id(trade_date, capital_spec.agent_id, card.card_id),
                 trade_date=trade_date,
                 agent_id=capital_spec.agent_id,
                 task_id=capital_spec.task_id,
@@ -402,6 +440,8 @@ def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
                     "warning_flags": card.warning_flags,
                 },
                 expected_output_contract=capital_spec.output_contract,
+                packet_family="capital",
+                runtime_tier=runtime_tier,
                 notes=["rules_triggered=high_strength_or_warning"],
             )
         )
@@ -423,11 +463,13 @@ def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
             card.stock_code,
         )
     )
-    for idx, candidate in enumerate(selected_candidates[:MAX_CANDIDATE_PACKETS], start=1):
+    candidate_budget = full_profile.packet_budget_by_family["candidate"]
+    for idx, candidate in enumerate(selected_candidates[:candidate_budget], start=1):
         watch_records = find_relevant_text_signals(text_watch_records, stock_code=candidate.stock_code, limit=2)
+        runtime_tier = "critical" if candidate.tradeability_verdict in {"too_concentrated", "blocked_by_budget"} else "important"
         packets.append(
             LLMWorkPacket(
-                packet_id=f"{trade_date}_{candidate_spec.agent_id}_{candidate.candidate_id}",
+                packet_id=_packet_id(trade_date, candidate_spec.agent_id, candidate.candidate_id),
                 trade_date=trade_date,
                 agent_id=candidate_spec.agent_id,
                 task_id=candidate_spec.task_id,
@@ -451,6 +493,8 @@ def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
                     "text_watch_focus": text_signal_focus_summary(watch_records) if watch_records else "",
                 },
                 expected_output_contract=candidate_spec.output_contract,
+                packet_family="candidate",
+                runtime_tier=runtime_tier,
                 notes=[
                     "rules_triggered=candidate_diagnosis",
                     f"text_watch_focus={text_signal_focus_summary(watch_records)}" if watch_records else "text_watch_focus=none",
@@ -472,14 +516,15 @@ def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
             -((item[1].candidate_score if item[1] and item[1].candidate_score is not None else 0.0)),
         )
     )
-    for idx, (plan, candidate) in enumerate(selected_plans[:MAX_TRADE_PLAN_PACKETS], start=1):
+    trade_plan_budget = full_profile.packet_budget_by_family["trade_plan"]
+    for idx, (plan, candidate) in enumerate(selected_plans[:trade_plan_budget], start=1):
         watch_records = find_relevant_text_signals(text_watch_records, stock_code=plan.stock_code, limit=2)
         supporting_events = [_event_brief(event_map[ref]) for ref in plan.supporting_cards if ref in event_map]
         supporting_themes = [_theme_brief(theme_map[ref]) for ref in plan.supporting_cards if ref in theme_map]
         supporting_capital = [_capital_brief(card) for card in capital_map.get(plan.stock_code, [])[:3]]
         packets.append(
             LLMWorkPacket(
-                packet_id=f"{trade_date}_{plan_spec.agent_id}_{plan.plan_id}",
+                packet_id=_packet_id(trade_date, plan_spec.agent_id, plan.plan_id),
                 trade_date=trade_date,
                 agent_id=plan_spec.agent_id,
                 task_id=plan_spec.task_id,
@@ -523,6 +568,8 @@ def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
                     ],
                 },
                 expected_output_contract=plan_spec.output_contract,
+                packet_family="trade_plan",
+                runtime_tier="critical" if plan.action == "buy_pilot" else "important",
                 notes=[
                     "rules_triggered=tradable_plan_refinement",
                     f"text_watch_focus={text_signal_focus_summary(watch_records)}" if watch_records else "text_watch_focus=none",
@@ -533,10 +580,11 @@ def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
     review_spec = registry["review_memory_agent"]
     review_entries = _load_review_memory_entries()
     review_entries.sort(key=lambda item: ((item.confidence if item.confidence is not None else 0.0), item.trade_date), reverse=True)
-    for idx, entry in enumerate(review_entries[:MAX_REVIEW_MEMORY_PACKETS], start=1):
+    review_budget = full_profile.packet_budget_by_family["review_memory"]
+    for idx, entry in enumerate(review_entries[:review_budget], start=1):
         packets.append(
             LLMWorkPacket(
-                packet_id=f"{trade_date}_{review_spec.agent_id}_{entry.memory_id}",
+                packet_id=_packet_id(trade_date, review_spec.agent_id, entry.memory_id),
                 trade_date=trade_date,
                 agent_id=review_spec.agent_id,
                 task_id=review_spec.task_id,
@@ -554,33 +602,36 @@ def build_llm_workpacks(trade_date: str) -> list[LLMWorkPacket]:
                     "lesson_summary": entry.lesson_summary,
                 },
                 expected_output_contract=review_spec.output_contract,
+                packet_family="review_memory",
+                runtime_tier="background",
                 notes=["rules_triggered=always"],
             )
         )
 
     priority_order = {"high": 0, "medium": 1, "low": 2}
     packets.sort(key=lambda item: (priority_order.get(item.priority, 9), item.sort_rank, item.agent_id, item.target_object_id))
-    return packets
+    return _apply_profile_budget(packets, mode)
 
 
-def build_llm_workpacks_cli(trade_date: str) -> tuple[Path, Path]:
-    packets = build_llm_workpacks(trade_date)
+def build_llm_workpacks_cli(trade_date: str, *, mode: str = "full") -> tuple[Path, Path]:
+    packets = build_llm_workpacks(trade_date, mode=mode)
     json_path = save_llm_workpacks(trade_date, packets)
     md_path = json_path.with_suffix(".md")
-    md_path.write_text(render_llm_workpacks_markdown(trade_date, packets), encoding="utf-8")
+    md_path.write_text(render_llm_workpacks_markdown(trade_date, packets, mode=mode), encoding="utf-8")
     return json_path, md_path
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", required=True, help="Trade date in YYYY-MM-DD format.")
+    parser.add_argument("--mode", choices=supported_llm_modes(), default="full", help="LLM packet selection mode.")
     return parser
 
 
 def main() -> None:
     parser = build_arg_parser()
     args = parser.parse_args()
-    json_path, md_path = build_llm_workpacks_cli(args.date)
+    json_path, md_path = build_llm_workpacks_cli(args.date, mode=args.mode)
     print(f"llm_workpacks_json={json_path}")
     print(f"llm_workpacks_md={md_path}")
 

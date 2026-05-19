@@ -27,6 +27,12 @@ class AccountConstraints:
     close_available: bool
     avoid_chasing_limit_up: bool
     avoid_low_liquidity: bool
+    trading_style: str = "balanced"
+    target_return_mode: str = "balanced"
+    position_concentration_limit: float = 0.6
+    max_setup_exposure: float = 0.35
+    allow_high_volatility_entries: bool = False
+    min_expected_upside_pct: float = 0.04
     main_board_only: bool = True
     board_lot_size: int = 100
     single_lot_alert_capital_pct: float = 0.35
@@ -57,6 +63,19 @@ def _candidate_files(directory: Path) -> list[Path]:
     )
 
 
+def is_small_capital_aggressive(account: AccountConstraints) -> bool:
+    if account.trading_style == "small_capital_aggressive":
+        return True
+    capital_total = float(account.capital_total or 0.0)
+    position_cap = float(account.single_position_max_pct or 0.0)
+    return (
+        capital_total <= 100_000
+        and position_cap >= 0.15
+        and account.max_new_positions_per_day <= 3
+        and account.allow_high_volatility_entries
+    )
+
+
 def _default_runtime_account_payload() -> dict:
     template_path = CONFIGS_DIR / "account_profile.template.json"
     try:
@@ -75,6 +94,12 @@ def _default_runtime_account_payload() -> dict:
     payload["profile_name"] = "default_runtime_demo"
     payload["capital_total"] = capital_total
     payload["single_trade_capital_max"] = single_trade_capital_max
+    payload["trading_style"] = str(payload.get("trading_style", "small_capital_aggressive") or "small_capital_aggressive")
+    payload["target_return_mode"] = str(payload.get("target_return_mode", "asymmetric") or "asymmetric")
+    payload["position_concentration_limit"] = float(payload.get("position_concentration_limit", 0.7) or 0.7)
+    payload["max_setup_exposure"] = float(payload.get("max_setup_exposure", 0.45) or 0.45)
+    payload["allow_high_volatility_entries"] = bool(payload.get("allow_high_volatility_entries", True))
+    payload["min_expected_upside_pct"] = float(payload.get("min_expected_upside_pct", 0.06) or 0.06)
     payload["main_board_only"] = bool(payload.get("main_board_only", True))
     payload["board_lot_size"] = int(payload.get("board_lot_size", 100) or 100)
     payload["single_lot_alert_capital_pct"] = float(payload.get("single_lot_alert_capital_pct", 0.35) or 0.35)
@@ -121,6 +146,12 @@ def load_active_account_constraints(path: Path | None = None) -> AccountConstrai
         close_available=bool(payload.get("close_available", False)),
         avoid_chasing_limit_up=bool(payload.get("avoid_chasing_limit_up", True)),
         avoid_low_liquidity=bool(payload.get("avoid_low_liquidity", True)),
+        trading_style=str(payload.get("trading_style", "balanced") or "balanced"),
+        target_return_mode=str(payload.get("target_return_mode", "balanced") or "balanced"),
+        position_concentration_limit=float(payload.get("position_concentration_limit", 0.6) or 0.6),
+        max_setup_exposure=float(payload.get("max_setup_exposure", 0.35) or 0.35),
+        allow_high_volatility_entries=bool(payload.get("allow_high_volatility_entries", False)),
+        min_expected_upside_pct=float(payload.get("min_expected_upside_pct", 0.04) or 0.04),
         main_board_only=bool(payload.get("main_board_only", True)),
         board_lot_size=int(payload.get("board_lot_size", 100) or 100),
         single_lot_alert_capital_pct=float(payload.get("single_lot_alert_capital_pct", 0.35) or 0.35),

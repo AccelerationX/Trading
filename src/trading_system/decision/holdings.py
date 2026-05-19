@@ -18,6 +18,9 @@ class HoldingPosition:
     shares: int = 0
     available_shares: int = 0
     cost_basis: float | None = None
+    execution_status: str = ""
+    planned_trade_date: str = ""
+    source_record_id: str = ""
     notes: str = ""
 
     def to_dict(self) -> dict:
@@ -30,6 +33,7 @@ class PortfolioSnapshot:
     broker: str = ""
     cash_cny: float | None = None
     positions: list[HoldingPosition] = field(default_factory=list)
+    applied_system_record_ids: list[str] = field(default_factory=list)
     notes: str = ""
 
     def to_dict(self) -> dict:
@@ -38,6 +42,7 @@ class PortfolioSnapshot:
             "broker": self.broker,
             "cash_cny": self.cash_cny,
             "positions": [position.to_dict() for position in self.positions],
+            "applied_system_record_ids": list(self.applied_system_record_ids),
             "notes": self.notes,
         }
 
@@ -85,6 +90,7 @@ def _default_payload() -> dict:
         "broker": "",
         "cash_cny": None,
         "positions": [],
+        "applied_system_record_ids": [],
         "notes": "",
     }
 
@@ -122,6 +128,9 @@ def load_portfolio_snapshot(path: Path | None = None) -> PortfolioSnapshot:
                     shares=shares,
                     available_shares=max(0, available_shares),
                     cost_basis=float(item["cost_basis"]) if item.get("cost_basis") not in ("", None) else None,
+                    execution_status=str(item.get("execution_status", "")).strip(),
+                    planned_trade_date=str(item.get("planned_trade_date", "")).strip(),
+                    source_record_id=str(item.get("source_record_id", "")).strip(),
                     notes=str(item.get("notes", "")).strip(),
                 )
             )
@@ -131,6 +140,11 @@ def load_portfolio_snapshot(path: Path | None = None) -> PortfolioSnapshot:
         broker=str(payload.get("broker", "")).strip() if isinstance(payload, dict) else "",
         cash_cny=float(payload["cash_cny"]) if isinstance(payload, dict) and payload.get("cash_cny") not in ("", None) else None,
         positions=[position for position in positions if position.stock_code and position.shares > 0],
+        applied_system_record_ids=[
+            str(item).strip()
+            for item in (payload.get("applied_system_record_ids", []) if isinstance(payload, dict) else [])
+            if str(item).strip()
+        ],
         notes=str(payload.get("notes", "")).strip() if isinstance(payload, dict) else "",
     )
 

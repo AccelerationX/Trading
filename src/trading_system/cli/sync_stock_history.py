@@ -9,6 +9,7 @@ import pandas as pd
 from pandas.errors import EmptyDataError, ParserError
 
 from trading_system.config.paths import INBOX_DIR, OUTPUTS_DIR, RAW_DATA_DIR
+from trading_system.signal.legacy.data_loader import load_stock_history, stock_history_cache_path
 
 
 STOCK_HISTORY_COLUMNS = [
@@ -52,9 +53,11 @@ TRADE_DATE_COL = "\u4ea4\u6613\u65e5"
 @dataclass(slots=True)
 class StockHistorySyncResult:
     trade_date: str
+    sync_mode: str
     updated_files: int
     new_files: int
     skipped_files: int
+    cache_rows: int
     source_path: Path
     reference_path: Path | None
     sample_codes: list[str]
@@ -252,7 +255,90 @@ def _merge_and_save_stock_history(
     return True, is_new_file
 
 
-def sync_stock_history_from_market_daily(trade_date: str) -> tuple[Path, Path]:
+def _panel_columns() -> list[str]:
+    return [
+        "stock_code",
+        "stock_name",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "prev_close",
+        "volume",
+        "amount_k",
+        "turnover_pct",
+        "free_turnover_pct",
+        "volume_ratio",
+        "pe_ttm",
+        "pb",
+        "total_mkt_cap_10k",
+        "float_mkt_cap_10k",
+        "limit_up",
+        "limit_down",
+    ]
+
+
+def _panel_row_from_market_row(row: dict, name_map: dict[str, str]) -> dict[str, object]:
+    stock_code = str(row.get("stock_code", "")).strip().upper()
+    return {
+        "stock_code": stock_code,
+        "stock_name": name_map.get(stock_code, "").strip(),
+        "trade_date": pd.to_datetime(str(row.get("trade_date", "")).strip(), format="%Y%m%d", errors="coerce"),
+        "open": _safe_number(row.get("open")),
+        "high": _safe_number(row.get("high")),
+        "low": _safe_number(row.get("low")),
+        "close": _safe_number(row.get("close")),
+        "prev_close": _safe_number(row.get("prev_close")),
+        "volume": _safe_number(row.get("volume")),
+        "amount_k": _safe_div_k(row.get("amount")),
+        "turnover_pct": _safe_number(row.get("turnover_pct")),
+        "free_turnover_pct": _safe_number(row.get("turnover_rate_f")),
+        "volume_ratio": _safe_number(row.get("volume_ratio")),
+        "pe_ttm": _safe_number(row.get("pe_ttm")),
+        "pb": _safe_number(row.get("pb")),
+        "total_mkt_cap_10k": _safe_number(row.get("total_mv")),
+        "float_mkt_cap_10k": _safe_number(row.get("circ_mv")),
+        "limit_up": _safe_number(row.get("limit_up_price")),
+        "limit_down": _safe_number(row.get("limit_down_price")),
+    }
+
+
+def _update_panel_cache(
+    *,
+    trade_date: str,
+    market_df: pd.DataFrame,
+    name_map: dict[str, str],
+    stock_dir: Path,
+) -> int:
+    cache_path = stock_history_cache_path()
+    if cache_path.exists():
+        existing = pd.read_parquet(cache_path)
+    elif stock_dir.exists() and any(stock_dir.glob("*.csv")):
+        existing = load_stock_history(stock_dir, cache_path=cache_path)
+    else:
+        existing = pd.DataFrame(columns=_panel_columns())
+
+    incoming = pd.DataFrame(
+        [_panel_row_from_market_row(row, name_map) for row in market_df.to_dict(orient="records")],
+        columns=_panel_columns(),
+    )
+    incoming = incoming.dropna(subset=["stock_code", "trade_date", "close"])
+    if existing.empty:
+        combined = incoming.copy()
+    else:
+        existing = existing.reindex(columns=_panel_columns())
+        target_date = pd.to_datetime(trade_date, format="%Y%m%d", errors="coerce")
+        filtered = existing.loc[pd.to_datetime(existing["trade_date"], errors="coerce") != target_date].copy()
+        combined = pd.concat([filtered, incoming], ignore_index=True)
+    combined = combined.drop_duplicates(subset=["stock_code", "trade_date"], keep="last")
+    combined = combined.sort_values(["stock_code", "trade_date"]).reset_index(drop=True)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    combined.to_parquet(cache_path, index=False)
+    return int(len(incoming))
+
+
+def sync_stock_history_from_market_daily(trade_date: str, *, sync_mode: str = "full") -> tuple[Path, Path]:
     market_path = _find_exact_file(INBOX_DIR / "market_equity_daily", "market_equity_daily", trade_date)
     reference_path = _find_latest_file(INBOX_DIR / "equity_reference_master", "equity_reference_master")
     json_path = _report_dir() / f"stock_history_sync_{trade_date}.json"
@@ -278,34 +364,48 @@ def sync_stock_history_from_market_daily(trade_date: str) -> tuple[Path, Path]:
 
     name_map = _load_reference_name_map(reference_path)
     stock_dir = _stock_history_dir()
+    cache_rows = _update_panel_cache(
+        trade_date=trade_date,
+        market_df=market_df,
+        name_map=name_map,
+        stock_dir=stock_dir,
+    )
     updated_files = 0
     new_files = 0
     skipped_files = 0
     sample_codes: list[str] = []
 
-    for row in market_df.to_dict(orient="records"):
-        stock_code = str(row.get("stock_code", "")).strip().upper()
-        if not stock_code:
-            skipped_files += 1
-            continue
-        file_path = stock_dir / f"{stock_code}.csv"
-        existing = _prepare_existing_frame(file_path)
-        row_dict = _normalize_market_row(row, name_map, existing_name=_existing_name(existing))
-        updated, is_new_file = _merge_and_save_stock_history(file_path, row_dict, existing=existing)
-        if updated:
-            updated_files += 1
-            if is_new_file:
-                new_files += 1
-            if len(sample_codes) < 10:
-                sample_codes.append(stock_code)
-        else:
-            skipped_files += 1
+    if sync_mode == "full":
+        for row in market_df.to_dict(orient="records"):
+            stock_code = str(row.get("stock_code", "")).strip().upper()
+            if not stock_code:
+                skipped_files += 1
+                continue
+            file_path = stock_dir / f"{stock_code}.csv"
+            existing = _prepare_existing_frame(file_path)
+            row_dict = _normalize_market_row(row, name_map, existing_name=_existing_name(existing))
+            updated, is_new_file = _merge_and_save_stock_history(file_path, row_dict, existing=existing)
+            if updated:
+                updated_files += 1
+                if is_new_file:
+                    new_files += 1
+                if len(sample_codes) < 10:
+                    sample_codes.append(stock_code)
+            else:
+                skipped_files += 1
+    else:
+        updated_files = 0
+        new_files = 0
+        skipped_files = int(len(market_df))
+        sample_codes = market_df["stock_code"].astype(str).head(10).tolist()
 
     result = StockHistorySyncResult(
         trade_date=trade_date,
+        sync_mode=sync_mode,
         updated_files=updated_files,
         new_files=new_files,
         skipped_files=skipped_files,
+        cache_rows=cache_rows,
         source_path=market_path,
         reference_path=reference_path,
         sample_codes=sample_codes,
@@ -313,9 +413,11 @@ def sync_stock_history_from_market_daily(trade_date: str) -> tuple[Path, Path]:
 
     json_payload = {
         "trade_date": result.trade_date,
+        "sync_mode": result.sync_mode,
         "updated_files": result.updated_files,
         "new_files": result.new_files,
         "skipped_files": result.skipped_files,
+        "cache_rows": result.cache_rows,
         "source_path": str(result.source_path),
         "source_mtime": source_mtime,
         "reference_path": str(result.reference_path) if result.reference_path else None,
@@ -326,6 +428,8 @@ def sync_stock_history_from_market_daily(trade_date: str) -> tuple[Path, Path]:
     md_lines = [
         f"# Stock History Sync - {trade_date}",
         "",
+        f"- sync_mode: `{result.sync_mode}`",
+        f"- cache_rows: `{result.cache_rows}`",
         f"- updated_files: `{result.updated_files}`",
         f"- new_files: `{result.new_files}`",
         f"- skipped_files: `{result.skipped_files}`",
@@ -340,13 +444,14 @@ def sync_stock_history_from_market_daily(trade_date: str) -> tuple[Path, Path]:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", required=True, help="Trade date in YYYYMMDD format.")
+    parser.add_argument("--sync-mode", choices=("cache_only", "full"), default="full", help="Whether to update only panel cache or also rewrite per-stock CSV files.")
     return parser
 
 
 def main() -> None:
     parser = build_arg_parser()
     args = parser.parse_args()
-    json_path, md_path = sync_stock_history_from_market_daily(str(args.date))
+    json_path, md_path = sync_stock_history_from_market_daily(str(args.date), sync_mode=args.sync_mode)
     print(f"stock_history_sync_json={json_path}")
     print(f"stock_history_sync_md={md_path}")
 

@@ -6,7 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from trading_system.config.paths import OUTPUTS_DIR, PROCESSED_DATA_DIR
-from trading_system.context.cards import CapitalBehaviorCard, EventCard, MarketRegimeSnapshot, ThemeCard
+from trading_system.context.cards import CapitalBehaviorCard, EventCard, MacroEventCard, MarketRegimeSnapshot, ThemeCard
 from trading_system.decision.account import AccountConstraints
 from trading_system.reporting.analysis_bundle import render_analysis_bundle_markdown
 from trading_system.signal.technical_modules import TechnicalModule, recommend_modules_for_regime
@@ -53,6 +53,14 @@ def _load_theme_cards(trade_date: str) -> list[ThemeCard]:
     return [ThemeCard(**item) for item in payload]
 
 
+def _load_macro_event_cards(trade_date: str) -> list[MacroEventCard]:
+    path = PROCESSED_DATA_DIR / "macro_events" / f"macro_event_cards_{trade_date}.json"
+    if not path.exists():
+        return []
+    payload = _load_json(path)
+    return [MacroEventCard(**item) for item in payload]
+
+
 def _load_capital_behavior_cards(trade_date: str) -> list[CapitalBehaviorCard]:
     path = PROCESSED_DATA_DIR / "capital" / f"capital_behavior_cards_{trade_date}.json"
     if not path.exists():
@@ -70,6 +78,7 @@ def build_analysis_bundle(trade_date: str) -> tuple[Path, Path]:
     )
     event_cards = _load_event_cards(trade_date)
     theme_cards = _load_theme_cards(trade_date)
+    macro_event_cards = _load_macro_event_cards(trade_date)
     capital_behavior_cards = _load_capital_behavior_cards(trade_date)
 
     json_path = _analysis_output_dir() / f"assistant_bundle_{trade_date}.json"
@@ -82,6 +91,7 @@ def build_analysis_bundle(trade_date: str) -> tuple[Path, Path]:
         "technical_modules": [asdict(module) for module in technical_modules],
         "event_cards": [asdict(card) for card in event_cards],
         "theme_cards": [asdict(card) for card in theme_cards],
+        "macro_event_cards": [asdict(card) for card in macro_event_cards],
         "capital_behavior_cards": [asdict(card) for card in capital_behavior_cards],
     }
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -93,6 +103,7 @@ def build_analysis_bundle(trade_date: str) -> tuple[Path, Path]:
             technical_modules=technical_modules,
             event_cards=event_cards,
             theme_cards=theme_cards,
+            macro_event_cards=macro_event_cards,
             capital_behavior_cards=capital_behavior_cards,
         ),
         encoding="utf-8",

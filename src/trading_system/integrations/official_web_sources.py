@@ -4,6 +4,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urljoin
@@ -12,6 +13,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from trading_system.config.paths import CONFIGS_DIR, INBOX_DIR
+from trading_system.integrations.domestic_news_sources import fetch_domestic_news_source_records
 
 
 DEFAULT_HEADERS = {
@@ -71,6 +73,24 @@ NEWS_PRIORITY_KEYWORDS: tuple[tuple[str, int], ...] = (
     ("芯片", 3),
     ("低空", 3),
 )
+
+
+NOISE_NEWS_MARKERS: tuple[str, ...] = (
+    "VIP资讯",
+    "解锁直达",
+    "风口研报",
+    "电报解读",
+    "点击查看",
+    "财联社早知道",
+)
+
+SOURCE_QUALITY_WEIGHTS: dict[str, float] = {
+    "财联社": 1.0,
+    "东方财富": 0.86,
+    "上海证券交易所": 0.84,
+    "深圳证券交易所": 0.84,
+    "巨潮资讯": 0.82,
+}
 
 
 @dataclass(frozen=True)
@@ -135,6 +155,75 @@ def _priority_score(text: str, *, category: str) -> int:
         if keyword in text:
             score += weight
     return score
+
+
+def _source_quality(record: dict) -> float:
+    source_name = str(record.get("source_name", "") or record.get("issuing_body", "")).strip()
+    return SOURCE_QUALITY_WEIGHTS.get(source_name, 0.72)
+
+
+def _news_signature(text: str) -> str:
+    cleaned = str(text).strip()
+    cleaned = re.sub(r"^【[^】]{1,24}】", "", cleaned)
+    for marker in NOISE_NEWS_MARKERS:
+        cleaned = cleaned.replace(marker, "")
+    cleaned = re.sub(r"[>\-—:：,，。\s]+", "", cleaned)
+    cleaned = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "", cleaned)
+    return cleaned.lower()
+
+
+def _is_noise_news_record(record: dict) -> bool:
+    title = str(record.get("title", "")).strip()
+    summary = str(record.get("summary_text", "")).strip()
+    text = f"{title} {summary}"
+    if any(marker in text for marker in NOISE_NEWS_MARKERS):
+        return True
+    if len(_news_signature(title)) < 8:
+        return True
+    return False
+
+
+def _is_similar_news_title(left: str, right: str) -> bool:
+    left_sig = _news_signature(left)
+    right_sig = _news_signature(right)
+    if not left_sig or not right_sig:
+        return False
+    if left_sig == right_sig:
+        return True
+    if len(left_sig) >= 10 and len(right_sig) >= 10 and (left_sig in right_sig or right_sig in left_sig):
+        return True
+    return SequenceMatcher(a=left_sig, b=right_sig).ratio() >= 0.78
+
+
+def _prefer_news_record(left: dict, right: dict) -> dict:
+    def sort_key(record: dict) -> tuple[float, int, str, int]:
+        return (
+            _source_quality(record),
+            int(record.get("priority_score", 0) or 0),
+            str(record.get("publish_time", "")),
+            len(str(record.get("summary_text", "")).strip()),
+        )
+
+    return left if sort_key(left) >= sort_key(right) else right
+
+
+def _dedupe_news_records(records: list[dict]) -> list[dict]:
+    deduped: list[dict] = []
+    for record in records:
+        if _is_noise_news_record(record):
+            continue
+        replaced = False
+        for idx, existing in enumerate(deduped):
+            if str(record.get("publish_time", ""))[:10] != str(existing.get("publish_time", ""))[:10]:
+                continue
+            if not _is_similar_news_title(str(record.get("title", "")), str(existing.get("title", ""))):
+                continue
+            deduped[idx] = _prefer_news_record(record, existing)
+            replaced = True
+            break
+        if not replaced:
+            deduped.append(record)
+    return deduped
 
 
 def _write_json_records(source_id: str, trade_date: str, records: list[dict]) -> OfficialFetchArtifact:
@@ -396,8 +485,9 @@ def _sort_and_trim(records: list[dict], *, category: str) -> list[dict]:
         "financial_news_wire": 40,
     }
 
-    def key_func(record: dict) -> tuple[int, str, str]:
+    def key_func(record: dict) -> tuple[float, int, str, str]:
         return (
+            _source_quality(record) if category == "financial_news_wire" else 0.0,
             int(record.get("priority_score", 0)),
             str(record.get("publish_time", "")),
             str(record.get("title", "")),
@@ -413,6 +503,7 @@ def fetch_official_web_sources(trade_date: str) -> tuple[list[OfficialFetchArtif
     filing_records: list[dict] = []
     news_records: list[dict] = []
     warnings: list[str] = []
+    artifacts: list[OfficialFetchArtifact] = []
 
     for spec in load_official_web_source_specs():
         if not spec.enabled:
@@ -431,6 +522,14 @@ def fetch_official_web_sources(trade_date: str) -> tuple[list[OfficialFetchArtif
         except Exception as exc:
             warnings.append(f"{spec.id} skipped: {exc}")
 
+    domestic_records_by_source, domestic_warnings = fetch_domestic_news_source_records(trade_date)
+    warnings.extend(domestic_warnings)
+    for source_id, records in domestic_records_by_source.items():
+        artifact = _write_json_records(source_id, trade_date, records)
+        artifact.notes.append("source=domestic_news_scrape")
+        artifacts.append(artifact)
+        news_records.extend(records)
+
     def dedupe(records: list[dict], key_fields: tuple[str, ...]) -> list[dict]:
         seen: set[tuple[str, ...]] = set()
         output: list[dict] = []
@@ -445,16 +544,17 @@ def fetch_official_web_sources(trade_date: str) -> tuple[list[OfficialFetchArtif
     policy_records = _sort_and_trim(dedupe(policy_records, ("title", "publish_time", "issuing_body")), category="policy_primary_documents")
     catalyst_records = _sort_and_trim(dedupe(catalyst_records, ("title", "publish_time", "source_name")), category="industry_catalyst_calendar")
     filing_records = _sort_and_trim(dedupe(filing_records, ("stock_code", "title", "publish_time")), category="exchange_filings")
-    news_records = _sort_and_trim(dedupe(news_records, ("title", "publish_time", "source_name")), category="financial_news_wire")
+    news_records = _sort_and_trim(_dedupe_news_records(news_records), category="financial_news_wire")
 
-    artifacts = [
+    artifacts.extend([
         _write_json_records("policy_primary_documents", trade_date, policy_records),
         _write_json_records("industry_catalyst_calendar", trade_date, catalyst_records),
         _write_json_records("exchange_filings", trade_date, filing_records),
         _write_json_records("financial_news_wire", trade_date, news_records),
-    ]
-    artifacts[0].notes.append("source=official_web")
-    artifacts[1].notes.append("source=official_web")
-    artifacts[2].notes.append("source=official_platform")
-    artifacts[3].notes.append("source=exchange_news")
+    ])
+    artifact_map = {artifact.source_id: artifact for artifact in artifacts}
+    artifact_map["policy_primary_documents"].notes.append("source=official_web")
+    artifact_map["industry_catalyst_calendar"].notes.append("source=official_web")
+    artifact_map["exchange_filings"].notes.append("source=official_platform")
+    artifact_map["financial_news_wire"].notes.append("source=exchange_news+domestic_scrape")
     return artifacts, warnings

@@ -9,8 +9,12 @@
       "shares": 0,
       "available_shares": 0,
       "cost_basis": null,
+      "execution_status": "",
+      "planned_trade_date": "",
+      "source_record_id": "",
       "notes": ""
     }
   ],
+  "applied_system_record_ids": [],
   "notes": ""
 }

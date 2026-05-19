@@ -34,6 +34,8 @@ class LLMWorkPacket:
     input_refs: list[str] = field(default_factory=list)
     context_payload: dict = field(default_factory=dict)
     expected_output_contract: str = ""
+    packet_family: str = ""
+    runtime_tier: str = "standard"
     notes: list[str] = field(default_factory=list)
 
 

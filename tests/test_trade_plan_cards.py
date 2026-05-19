@@ -67,7 +67,18 @@ class TradePlanCardsTest(unittest.TestCase):
                     trade_date="2026-05-06",
                     candidate_source="event_theme_resonance",
                     candidate_score=0.82,
+                    fusion_score=0.82,
+                    fusion_verdict="actionable",
+                    setup_type="leader_acceleration",
+                    setup_confidence=0.81,
+                    market_gate_pass=True,
+                    market_gate_reason="allowed",
+                    dominant_driver="event",
                     technical_state="event_theme_resonance",
+                    market_permission_score=0.78,
+                    thesis_quality_score=0.80,
+                    technical_confirmation_score=0.74,
+                    execution_readiness_score=0.66,
                     active_module_ids=["TM501_market_state_dynamic", "TM201_group_rotation_repair"],
                     supporting_cards=["e1", "t1"],
                 ),
@@ -77,7 +88,14 @@ class TradePlanCardsTest(unittest.TestCase):
                     trade_date="2026-05-06",
                     candidate_source="theme_priority",
                     candidate_score=0.58,
+                    fusion_score=0.58,
+                    fusion_verdict="watch",
+                    dominant_driver="theme",
                     technical_state="theme_rotation_watch",
+                    market_permission_score=0.60,
+                    thesis_quality_score=0.52,
+                    technical_confirmation_score=0.42,
+                    execution_readiness_score=0.55,
                     supporting_cards=["t1"],
                 ),
             ],
@@ -99,6 +117,8 @@ class TradePlanCardsTest(unittest.TestCase):
         self.assertEqual(plans[1].action, "watch_only")
         self.assertIsNotNone(plans[0].max_position_pct)
         self.assertTrue(any("text_watch_focus" in note for note in plans[0].risk_notes))
+        self.assertIn("fusion_verdict=actionable", plans[0].rationale)
+        self.assertEqual(plans[0].setup_type, "leader_acceleration")
 
     def test_render_trade_plan_markdown(self) -> None:
         markdown = render_trade_plan_markdown(
@@ -152,6 +172,8 @@ class TradePlanCardsTest(unittest.TestCase):
                     trade_date="2026-05-06",
                     candidate_source="event_theme_resonance",
                     candidate_score=0.82,
+                    fusion_score=0.82,
+                    fusion_verdict="actionable",
                     technical_state="event_theme_resonance",
                     disqualify_flags=["text_watch_risk_overhang"],
                     supporting_cards=["e1"],
@@ -172,6 +194,425 @@ class TradePlanCardsTest(unittest.TestCase):
             ],
         )
         self.assertEqual(plans[0].action, "avoid")
+
+    def test_market_gate_blocked_setup_is_not_promoted(self) -> None:
+        snapshot = MarketRegimeSnapshot(
+            snapshot_id="s1",
+            trade_date="2026-05-06",
+            market_bias="bearish",
+            risk_mode="risk_off",
+            breadth_strength="weak",
+            limit_up_temperature="cool",
+            turnover_regime="low",
+            style_lead="small_cap_lead",
+            theme_concentration="high",
+            confidence=0.8,
+            supporting_evidence=[],
+        )
+        account = AccountConstraints(
+            profile_name="acct",
+            capital_total=200000.0,
+            capital_liquid_ratio_min=0.1,
+            single_position_max_pct=0.2,
+            single_trade_capital_max=50000.0,
+            max_holdings=5,
+            max_new_positions_per_day=2,
+            max_portfolio_turnover_per_day=0.4,
+            daily_drawdown_alert_pct=0.03,
+            portfolio_drawdown_alert_pct=0.08,
+            preferred_holding_horizon_days=3,
+            execution_mode="manual",
+            can_watch_intraday=True,
+            preopen_available=True,
+            midday_available=True,
+            close_available=True,
+            avoid_chasing_limit_up=True,
+            avoid_low_liquidity=True,
+        )
+        plans = build_trade_plan_cards(
+            "2026-05-06",
+            market_regime=snapshot,
+            account=account,
+            candidate_cards=[
+                CandidateCard(
+                    candidate_id="c1",
+                    stock_code="000001.SZ",
+                    trade_date="2026-05-06",
+                    candidate_source="full_resonance",
+                    candidate_score=0.84,
+                    fusion_score=0.84,
+                    fusion_verdict="actionable",
+                    setup_type="leader_acceleration",
+                    setup_confidence=0.82,
+                    market_gate_pass=False,
+                    market_gate_reason="blocked_setup:leader_acceleration",
+                    technical_state="event_theme_resonance",
+                )
+            ],
+            text_watch_records=[],
+        )
+        self.assertEqual(plans[0].action, "avoid")
+        self.assertEqual(plans[0].market_gate_reason, "blocked_setup:leader_acceleration")
+
+    def test_aggressive_small_capital_profile_concentrates_pilot_sizing(self) -> None:
+        snapshot = MarketRegimeSnapshot(
+            snapshot_id="s1",
+            trade_date="2026-05-06",
+            market_bias="bullish",
+            risk_mode="risk_on",
+            breadth_strength="strong",
+            limit_up_temperature="warm",
+            turnover_regime="high",
+            style_lead="small_cap_lead",
+            theme_concentration="high",
+            confidence=0.8,
+            supporting_evidence=[],
+        )
+        account = AccountConstraints(
+            profile_name="acct",
+            capital_total=43000.0,
+            capital_liquid_ratio_min=0.1,
+            single_position_max_pct=1.0,
+            single_trade_capital_max=43000.0,
+            max_holdings=5,
+            max_new_positions_per_day=2,
+            max_portfolio_turnover_per_day=0.4,
+            daily_drawdown_alert_pct=0.03,
+            portfolio_drawdown_alert_pct=0.08,
+            preferred_holding_horizon_days=3,
+            execution_mode="manual",
+            can_watch_intraday=True,
+            preopen_available=True,
+            midday_available=True,
+            close_available=True,
+            avoid_chasing_limit_up=True,
+            avoid_low_liquidity=True,
+            trading_style="small_capital_aggressive",
+            target_return_mode="asymmetric",
+            position_concentration_limit=0.7,
+            max_setup_exposure=0.45,
+            allow_high_volatility_entries=True,
+            min_expected_upside_pct=0.06,
+        )
+        plans = build_trade_plan_cards(
+            "2026-05-06",
+            market_regime=snapshot,
+            account=account,
+            candidate_cards=[
+                CandidateCard(
+                    candidate_id="c1",
+                    stock_code="000001.SZ",
+                    trade_date="2026-05-06",
+                    candidate_source="full_resonance",
+                    candidate_score=0.84,
+                    fusion_score=0.84,
+                    fusion_verdict="actionable",
+                    setup_type="leader_acceleration",
+                    setup_confidence=0.82,
+                    market_gate_pass=True,
+                    market_gate_reason="allowed",
+                    technical_state="event_theme_resonance",
+                    market_permission_score=0.78,
+                    thesis_quality_score=0.80,
+                    technical_confirmation_score=0.74,
+                    execution_readiness_score=0.66,
+                    last_close_price=10.0,
+                    estimated_min_lot_cost=1000.0,
+                    tradeability_verdict="tradable",
+                )
+            ],
+            text_watch_records=[],
+        )
+        self.assertEqual(plans[0].action, "buy_pilot")
+        self.assertEqual(plans[0].max_position_pct, 0.45)
+        self.assertIn("Pilot size is about", plans[0].position_size_rule)
+
+    def test_setup_policy_disabled_forces_avoid(self) -> None:
+        snapshot = MarketRegimeSnapshot(
+            snapshot_id="s1",
+            trade_date="2026-05-06",
+            market_bias="bullish",
+            risk_mode="risk_on",
+            breadth_strength="strong",
+            limit_up_temperature="warm",
+            turnover_regime="high",
+            style_lead="small_cap_lead",
+            theme_concentration="high",
+            confidence=0.8,
+            supporting_evidence=[],
+        )
+        account = AccountConstraints(
+            profile_name="acct",
+            capital_total=200000.0,
+            capital_liquid_ratio_min=0.1,
+            single_position_max_pct=0.2,
+            single_trade_capital_max=50000.0,
+            max_holdings=5,
+            max_new_positions_per_day=2,
+            max_portfolio_turnover_per_day=0.4,
+            daily_drawdown_alert_pct=0.03,
+            portfolio_drawdown_alert_pct=0.08,
+            preferred_holding_horizon_days=3,
+            execution_mode="manual",
+            can_watch_intraday=True,
+            preopen_available=True,
+            midday_available=True,
+            close_available=True,
+            avoid_chasing_limit_up=True,
+            avoid_low_liquidity=True,
+        )
+        plans = build_trade_plan_cards(
+            "2026-05-06",
+            market_regime=snapshot,
+            account=account,
+            candidate_cards=[
+                CandidateCard(
+                    candidate_id="c1",
+                    stock_code="000001.SZ",
+                    trade_date="2026-05-06",
+                    candidate_source="full_resonance",
+                    candidate_score=0.84,
+                    fusion_score=0.84,
+                    fusion_verdict="actionable",
+                    setup_type="leader_acceleration",
+                    setup_policy_status="disabled",
+                    setup_confidence=0.82,
+                    market_gate_pass=True,
+                    market_gate_reason="allowed",
+                    technical_state="event_theme_resonance",
+                    market_permission_score=0.78,
+                    thesis_quality_score=0.80,
+                    technical_confirmation_score=0.74,
+                    execution_readiness_score=0.66,
+                )
+            ],
+            text_watch_records=[],
+        )
+        self.assertEqual(plans[0].action, "avoid")
+        self.assertEqual(plans[0].setup_policy_status, "disabled")
+
+    def test_favored_setup_can_clear_lower_dynamic_action_floor(self) -> None:
+        snapshot = MarketRegimeSnapshot(
+            snapshot_id="s1",
+            trade_date="2026-05-06",
+            market_bias="bullish",
+            risk_mode="risk_on",
+            breadth_strength="strong",
+            limit_up_temperature="warm",
+            turnover_regime="high",
+            style_lead="small_cap_lead",
+            theme_concentration="high",
+            confidence=0.8,
+            supporting_evidence=[],
+        )
+        account = AccountConstraints(
+            profile_name="acct",
+            capital_total=200000.0,
+            capital_liquid_ratio_min=0.1,
+            single_position_max_pct=0.2,
+            single_trade_capital_max=50000.0,
+            max_holdings=5,
+            max_new_positions_per_day=2,
+            max_portfolio_turnover_per_day=0.4,
+            daily_drawdown_alert_pct=0.03,
+            portfolio_drawdown_alert_pct=0.08,
+            preferred_holding_horizon_days=3,
+            execution_mode="manual",
+            can_watch_intraday=True,
+            preopen_available=True,
+            midday_available=True,
+            close_available=True,
+            avoid_chasing_limit_up=True,
+            avoid_low_liquidity=True,
+        )
+        plans = build_trade_plan_cards(
+            "2026-05-06",
+            market_regime=snapshot,
+            account=account,
+            candidate_cards=[
+                CandidateCard(
+                    candidate_id="c1",
+                    stock_code="000001.SZ",
+                    trade_date="2026-05-06",
+                    candidate_source="event_direct",
+                    candidate_score=0.58,
+                    fusion_score=0.58,
+                    fusion_verdict="actionable",
+                    setup_type="event_ignition",
+                    setup_policy_status="favored",
+                    setup_action_floor=0.56,
+                    setup_position_cap_multiplier=1.15,
+                    market_gate_pass=True,
+                    market_gate_reason="allowed",
+                    technical_state="event_breakout_watch",
+                    market_permission_score=0.74,
+                    thesis_quality_score=0.70,
+                    technical_confirmation_score=0.60,
+                    execution_readiness_score=0.61,
+                )
+            ],
+            text_watch_records=[],
+        )
+        self.assertEqual(plans[0].action, "buy_pilot")
+
+    def test_cautious_setup_caps_position_size(self) -> None:
+        snapshot = MarketRegimeSnapshot(
+            snapshot_id="s1",
+            trade_date="2026-05-06",
+            market_bias="bullish",
+            risk_mode="risk_on",
+            breadth_strength="strong",
+            limit_up_temperature="warm",
+            turnover_regime="high",
+            style_lead="small_cap_lead",
+            theme_concentration="high",
+            confidence=0.8,
+            supporting_evidence=[],
+        )
+        account = AccountConstraints(
+            profile_name="acct",
+            capital_total=43000.0,
+            capital_liquid_ratio_min=0.1,
+            single_position_max_pct=1.0,
+            single_trade_capital_max=43000.0,
+            max_holdings=5,
+            max_new_positions_per_day=2,
+            max_portfolio_turnover_per_day=0.4,
+            daily_drawdown_alert_pct=0.03,
+            portfolio_drawdown_alert_pct=0.08,
+            preferred_holding_horizon_days=3,
+            execution_mode="manual",
+            can_watch_intraday=True,
+            preopen_available=True,
+            midday_available=True,
+            close_available=True,
+            avoid_chasing_limit_up=True,
+            avoid_low_liquidity=True,
+            trading_style="small_capital_aggressive",
+            target_return_mode="asymmetric",
+            position_concentration_limit=0.7,
+            max_setup_exposure=0.45,
+            allow_high_volatility_entries=True,
+            min_expected_upside_pct=0.06,
+        )
+        plans = build_trade_plan_cards(
+            "2026-05-06",
+            market_regime=snapshot,
+            account=account,
+            candidate_cards=[
+                CandidateCard(
+                    candidate_id="c1",
+                    stock_code="000001.SZ",
+                    trade_date="2026-05-06",
+                    candidate_source="full_resonance",
+                    candidate_score=0.84,
+                    fusion_score=0.84,
+                    fusion_verdict="actionable",
+                    setup_type="leader_acceleration",
+                    setup_policy_status="favored",
+                    setup_action_floor=0.56,
+                    setup_position_cap_multiplier=1.15,
+                    setup_confidence=0.82,
+                    market_gate_pass=True,
+                    market_gate_reason="allowed",
+                    technical_state="event_theme_resonance",
+                    market_permission_score=0.78,
+                    thesis_quality_score=0.80,
+                    technical_confirmation_score=0.74,
+                    execution_readiness_score=0.66,
+                    last_close_price=10.0,
+                    estimated_min_lot_cost=1000.0,
+                    tradeability_verdict="tradable",
+                ),
+                CandidateCard(
+                    candidate_id="c2",
+                    stock_code="000002.SZ",
+                    trade_date="2026-05-06",
+                    candidate_source="full_resonance",
+                    candidate_score=0.84,
+                    fusion_score=0.84,
+                    fusion_verdict="actionable",
+                    setup_type="leader_acceleration",
+                    setup_policy_status="cautious",
+                    setup_action_floor=0.68,
+                    setup_position_cap_multiplier=0.75,
+                    setup_confidence=0.82,
+                    market_gate_pass=True,
+                    market_gate_reason="allowed",
+                    technical_state="event_theme_resonance",
+                    market_permission_score=0.78,
+                    thesis_quality_score=0.80,
+                    technical_confirmation_score=0.74,
+                    execution_readiness_score=0.66,
+                    last_close_price=10.0,
+                    estimated_min_lot_cost=1000.0,
+                    tradeability_verdict="tradable",
+                ),
+            ],
+            text_watch_records=[],
+        )
+        self.assertEqual(plans[0].action, "buy_pilot")
+        self.assertEqual(plans[1].action, "watch_only")
+        self.assertGreater(plans[0].max_position_pct or 0.0, 0.45)
+
+    def test_fusion_watch_candidate_is_not_promoted_to_buy_pilot(self) -> None:
+        snapshot = MarketRegimeSnapshot(
+            snapshot_id="s1",
+            trade_date="2026-05-06",
+            market_bias="bullish",
+            risk_mode="risk_on",
+            breadth_strength="strong",
+            limit_up_temperature="warm",
+            turnover_regime="high",
+            style_lead="small_cap_lead",
+            theme_concentration="high",
+            confidence=0.8,
+            supporting_evidence=[],
+        )
+        account = AccountConstraints(
+            profile_name="acct",
+            capital_total=200000.0,
+            capital_liquid_ratio_min=0.1,
+            single_position_max_pct=0.2,
+            single_trade_capital_max=50000.0,
+            max_holdings=5,
+            max_new_positions_per_day=2,
+            max_portfolio_turnover_per_day=0.4,
+            daily_drawdown_alert_pct=0.03,
+            portfolio_drawdown_alert_pct=0.08,
+            preferred_holding_horizon_days=3,
+            execution_mode="manual",
+            can_watch_intraday=True,
+            preopen_available=True,
+            midday_available=True,
+            close_available=True,
+            avoid_chasing_limit_up=True,
+            avoid_low_liquidity=True,
+        )
+        plans = build_trade_plan_cards(
+            "2026-05-06",
+            market_regime=snapshot,
+            account=account,
+            candidate_cards=[
+                CandidateCard(
+                    candidate_id="c1",
+                    stock_code="000001.SZ",
+                    trade_date="2026-05-06",
+                    candidate_source="event_direct",
+                    candidate_score=0.72,
+                    fusion_score=0.58,
+                    fusion_verdict="watch",
+                    dominant_driver="event",
+                    technical_state="event_breakout_watch",
+                    market_permission_score=0.74,
+                    thesis_quality_score=0.70,
+                    technical_confirmation_score=0.34,
+                    execution_readiness_score=0.61,
+                )
+            ],
+            text_watch_records=[],
+        )
+        self.assertEqual(plans[0].action, "watch_only")
 
     def test_trade_plan_cards_are_capped_for_manual_review(self) -> None:
         snapshot = MarketRegimeSnapshot(

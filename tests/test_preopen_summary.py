@@ -332,5 +332,90 @@ class PreopenSummaryTest(unittest.TestCase):
         self.assertIn("直接受益", markdown)
 
 
+    def test_render_preopen_summary_includes_macro_event_board(self) -> None:
+        payload = {
+            "trade_date": "2026-05-06",
+            "data_basis": {"market_close_date": "2026-05-06", "description": "test"},
+            "market_view": {"risk_mode": "risk_on", "market_bias": "bullish", "style_lead": "large_cap_lead", "breadth_strength": "strong", "theme_concentration": "high", "opening_risk_note": "watch breadth"},
+            "account_view": {"capital_total": 43000.0, "single_trade_capital_max": 43000.0, "max_new_positions_per_day": 2, "max_holdings": 5},
+            "holding_assessments": [],
+            "theme_board": [],
+            "top_new_ideas": [],
+            "watchlist": [],
+            "focus_themes": [],
+            "macro_event_board": [
+                {
+                    "title": "Trump visit opens trade talks",
+                    "event_type": "cross_border_diplomacy",
+                    "bias": "bullish",
+                    "impact_scope": "macro_cross_border",
+                    "confidence": 0.82,
+                    "beneficiary_industries": ["consumer_electronics"],
+                    "risk_industries": ["military"],
+                    "confirmation_signals": ["export chain strength"],
+                    "summary": "Watch export chain follow-through.",
+                }
+            ],
+        }
+        markdown = render_preopen_summary_markdown(payload)
+        self.assertIn("## 宏观事件", markdown)
+        self.assertIn("Trump visit opens trade talks", markdown)
+        self.assertIn("consumer_electronics", markdown)
+
+
+    def test_action_summary_includes_setup_gate_fields(self) -> None:
+        payload = build_preopen_summary_payload(
+            trade_date="2026-05-06",
+            market_regime=MarketRegimeSnapshot(
+                snapshot_id="s1",
+                trade_date="2026-05-06",
+                market_bias="bullish",
+                risk_mode="risk_on",
+                breadth_strength="strong",
+                limit_up_temperature="warm",
+                turnover_regime="high",
+                style_lead="small_cap_lead",
+                theme_concentration="high",
+            ),
+            account=AccountConstraints(
+                profile_name="acct",
+                capital_total=43000.0,
+                capital_liquid_ratio_min=0.1,
+                single_position_max_pct=1.0,
+                single_trade_capital_max=43000.0,
+                max_holdings=5,
+                max_new_positions_per_day=2,
+                max_portfolio_turnover_per_day=0.4,
+                daily_drawdown_alert_pct=0.03,
+                portfolio_drawdown_alert_pct=0.08,
+                preferred_holding_horizon_days=3,
+                execution_mode="manual",
+                can_watch_intraday=True,
+                preopen_available=True,
+                midday_available=True,
+                close_available=True,
+                avoid_chasing_limit_up=True,
+                avoid_low_liquidity=True,
+            ),
+            portfolio=PortfolioSnapshot(),
+            holding_assessments=[],
+            candidate_cards=[],
+            trade_plans=[
+                TradePlanCard(
+                    plan_id="p1",
+                    trade_date="2026-05-06",
+                    stock_code="603986.SH",
+                    action="buy_pilot",
+                    priority_rank=1,
+                    rationale="x",
+                    entry_condition="x",
+                    setup_type="leader_acceleration",
+                )
+            ],
+            theme_cards=[],
+        )
+        self.assertEqual(payload["action_summary"]["best_setup"], "leader_acceleration")
+        self.assertIn("leader_acceleration", payload["action_summary"]["allowed_setups"])
+
 if __name__ == "__main__":
     unittest.main()

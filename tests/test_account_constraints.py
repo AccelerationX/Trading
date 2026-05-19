@@ -41,7 +41,13 @@ class AccountConstraintsTest(unittest.TestCase):
                         "midday_available": False,
                         "close_available": True,
                         "avoid_chasing_limit_up": True,
-                        "avoid_low_liquidity": True
+                        "avoid_low_liquidity": True,
+                        "trading_style": "small_capital_aggressive",
+                        "target_return_mode": "asymmetric",
+                        "position_concentration_limit": 0.7,
+                        "max_setup_exposure": 0.45,
+                        "allow_high_volatility_entries": True,
+                        "min_expected_upside_pct": 0.06,
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -52,6 +58,8 @@ class AccountConstraintsTest(unittest.TestCase):
             account = load_active_account_constraints(profile_path)
             self.assertEqual(account.profile_name, "acct_a")
             self.assertEqual(account.max_holdings, 5)
+            self.assertEqual(account.trading_style, "small_capital_aggressive")
+            self.assertTrue(account.allow_high_volatility_entries)
             output_path = tmp_root / "normalized.json"
             saved = save_normalized_account_constraints(account, output_path)
             self.assertTrue(saved.exists())
@@ -67,6 +75,7 @@ class AccountConstraintsTest(unittest.TestCase):
                 self.assertEqual(account.profile_name, "default_runtime_demo")
                 self.assertGreater(account.capital_total, 0)
                 self.assertGreater(account.single_trade_capital_max, 0)
+                self.assertEqual(account.trading_style, "small_capital_aggressive")
         finally:
             account_mod.INBOX_DIR = original_inbox_dir
 

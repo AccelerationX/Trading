@@ -17,6 +17,12 @@ class MarketRegimeSnapshot:
     sentiment_cycle: str = ""
     leader_stability: str = ""
     event_driven_bias: str = ""
+    index_trend_state: str = ""
+    index_alignment: str = ""
+    trend_strength_score: float | None = None
+    speculative_heat_score: float | None = None
+    sentiment_pressure_score: float | None = None
+    breakout_failure_rate: float | None = None
     opening_risk_note: str = ""
     confidence: float | None = None
     supporting_evidence: list[str] = field(default_factory=list)
@@ -66,6 +72,27 @@ class ThemeCard:
 
 
 @dataclass(slots=True)
+class MacroEventCard:
+    macro_event_id: str
+    event_type: str
+    title: str
+    publish_time: str = ""
+    source_name: str = ""
+    source_url: str = ""
+    source_kind: str = ""
+    bias: str = ""
+    impact_scope: str = ""
+    confidence: float | None = None
+    beneficiary_industries: list[str] = field(default_factory=list)
+    risk_industries: list[str] = field(default_factory=list)
+    related_markets: list[str] = field(default_factory=list)
+    confirmation_signals: list[str] = field(default_factory=list)
+    risk_flags: list[str] = field(default_factory=list)
+    summary: str = ""
+    source_refs: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class CapitalBehaviorCard:
     card_id: str
     stock_code: str
@@ -89,9 +116,26 @@ class CandidateCard:
     trade_date: str
     candidate_source: str
     candidate_score: float | None = None
+    fusion_score: float | None = None
+    fusion_verdict: str = ""
+    setup_type: str = ""
+    setup_confidence: float | None = None
+    setup_policy_status: str = ""
+    setup_policy_score: float | None = None
+    setup_action_floor: float | None = None
+    setup_position_cap_multiplier: float | None = None
+    market_gate_pass: bool = False
+    market_gate_reason: str = ""
+    dominant_driver: str = ""
     technical_state: str = ""
+    market_permission_score: float | None = None
+    driver_conviction_score: float | None = None
+    thesis_quality_score: float | None = None
+    technical_confirmation_score: float | None = None
+    execution_readiness_score: float | None = None
     event_support_score: float | None = None
     theme_alignment_score: float | None = None
+    macro_alignment_score: float | None = None
     capital_confirmation_score: float | None = None
     information_edge_score: float | None = None
     market_fit_score: float | None = None
@@ -99,6 +143,7 @@ class CandidateCard:
     active_module_ids: list[str] = field(default_factory=list)
     disqualify_flags: list[str] = field(default_factory=list)
     supporting_cards: list[str] = field(default_factory=list)
+    supporting_macro_events: list[str] = field(default_factory=list)
     candidate_rationale: str = ""
     last_close_price: float | None = None
     board_lot_size: int = 100
@@ -107,6 +152,7 @@ class CandidateCard:
     tradeability_verdict: str = ""
     diagnostic_summary: str = ""
     diagnostic_risk_notes: list[str] = field(default_factory=list)
+    fusion_notes: list[str] = field(default_factory=list)
     llm_diagnostic_summary: str = ""
     llm_tradeability_verdict: str = ""
     llm_focus_points: list[str] = field(default_factory=list)
@@ -123,6 +169,9 @@ class TradePlanCard:
     priority_rank: int
     rationale: str
     entry_condition: str
+    setup_type: str = ""
+    setup_policy_status: str = ""
+    market_gate_reason: str = ""
     entry_zone: str = ""
     position_size_rule: str = ""
     max_position_pct: float | None = None

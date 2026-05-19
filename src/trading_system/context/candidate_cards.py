@@ -5,14 +5,16 @@ from dataclasses import asdict
 from pathlib import Path
 
 from trading_system.config.paths import INBOX_DIR, PROCESSED_DATA_DIR
-from trading_system.context.cards import CandidateCard, CapitalBehaviorCard, EventCard, MarketRegimeSnapshot, ThemeCard
+from trading_system.context.cards import CandidateCard, CapitalBehaviorCard, EventCard, MacroEventCard, MarketRegimeSnapshot, ThemeCard
 from trading_system.context.text_signal_support import (
     find_relevant_text_signals,
     load_text_signal_watch,
     text_signal_bias,
     text_signal_focus_summary,
 )
-from trading_system.decision.account import AccountConstraints
+from trading_system.decision.account import AccountConstraints, is_small_capital_aggressive
+from trading_system.decision.fusion_engine import CandidateFusionInput, evaluate_candidate_fusion
+from trading_system.evaluation.setup_policy import SetupPolicySignal
 from trading_system.ingest.simple_tabular import read_records
 from trading_system.signal.technical_modules import TechnicalModule
 from trading_system.signal.scanners.merging import aggregate_module_signals, compute_module_score, merge_signals_for_stock
@@ -127,6 +129,7 @@ def _information_edge_score(
     *,
     related_events: list[EventCard],
     related_themes: list[ThemeCard],
+    macro_alignment_score: float | None,
     text_signal_score: float | None,
 ) -> float:
     score = 0.18
@@ -150,6 +153,9 @@ def _information_edge_score(
         if theme.priority_stocks:
             score += 0.03
 
+    if macro_alignment_score is not None:
+        score += (macro_alignment_score - 0.5) * 0.24
+
     if text_signal_score is not None:
         score += (text_signal_score - 0.5) * 0.18
 
@@ -166,6 +172,7 @@ def _market_fit_score(
     candidate_source: str,
     event_support_score: float,
     theme_alignment_score: float,
+    macro_alignment_score: float | None,
 ) -> float:
     if snapshot.risk_mode == "risk_on":
         score = 0.72
@@ -187,8 +194,50 @@ def _market_fit_score(
         score += 0.04
     if snapshot.theme_concentration == "high" and theme_alignment_score >= 0.6:
         score += 0.05
+    if macro_alignment_score is not None and macro_alignment_score >= 0.62:
+        score += 0.06
+    elif macro_alignment_score is not None and macro_alignment_score <= 0.38:
+        score -= 0.08
 
     return round(_clamp_score(score), 3)
+
+
+def _macro_alignment_score(
+    *,
+    industry_tags: list[str],
+    macro_event_cards: list[MacroEventCard] | None,
+) -> tuple[float | None, list[MacroEventCard]]:
+    if not macro_event_cards or not industry_tags:
+        return None, []
+
+    normalized_tags = {tag.strip().lower() for tag in industry_tags if tag.strip()}
+    relevant: list[MacroEventCard] = []
+    score = 0.5
+
+    for card in macro_event_cards:
+        beneficiary_tags = {tag.strip().lower() for tag in card.beneficiary_industries if tag.strip()}
+        risk_tags = {tag.strip().lower() for tag in card.risk_industries if tag.strip()}
+        if not (normalized_tags & beneficiary_tags or normalized_tags & risk_tags):
+            continue
+        relevant.append(card)
+        confidence = card.confidence if card.confidence is not None else 0.6
+        if normalized_tags & beneficiary_tags:
+            if card.bias == "bullish":
+                score += 0.22 * confidence
+            elif card.bias == "bearish":
+                score -= 0.14 * confidence
+            else:
+                score += 0.04 * confidence
+        if normalized_tags & risk_tags:
+            if card.bias == "bearish":
+                score -= 0.24 * confidence
+            elif card.bias == "bullish":
+                score += 0.03 * confidence
+            else:
+                score -= 0.06 * confidence
+    if not relevant:
+        return None, []
+    return round(_clamp_score(score), 3), relevant[:3]
 
 
 def _account_fit_score(
@@ -198,6 +247,7 @@ def _account_fit_score(
     candidate_source: str,
     tradeability_score: float | None = None,
 ) -> float:
+    aggressive = is_small_capital_aggressive(account)
     score = 0.75
     if account.single_position_max_pct < 0.1:
         score -= 0.15
@@ -211,6 +261,13 @@ def _account_fit_score(
         score -= 0.06
     if any(module.needs_intraday for module in technical_modules) and not account.can_watch_intraday:
         score -= 0.2
+    if aggressive:
+        if candidate_source in {"full_resonance", "event_theme_resonance", "module_event_resonance"}:
+            score += 0.08
+        if account.allow_high_volatility_entries:
+            score += 0.04
+        if account.max_new_positions_per_day <= 2:
+            score += 0.03
     if tradeability_score is not None:
         score = min(score, tradeability_score)
     return round(_clamp_score(score), 3)
@@ -260,6 +317,12 @@ def _tradeability_assessment(
         score = min(score, 0.45)
         verdict = "liquidity_caution" if verdict == "tradable" else verdict
         risk_notes.append("low_daily_turnover")
+
+    if is_small_capital_aggressive(account):
+        if verdict == "stretched":
+            score = min(0.56, max(score, 0.48))
+        if verdict == "tradable" and concentration_ratio >= account.position_concentration_limit * 0.5:
+            risk_notes.append("position_concentration_high")
 
     return close_price, min_lot_cost, round(_clamp_score(score), 3), verdict, list(dict.fromkeys(risk_notes))
 
@@ -472,55 +535,6 @@ def _infer_technical_state(
     return "ranked_watchlist"
 
 
-def _weighted_candidate_score(
-    *,
-    event_support_score: float,
-    theme_alignment_score: float,
-    information_edge_score: float,
-    module_score: float,
-    capital_confirmation_score: float | None,
-    market_fit_score: float,
-    account_fit_score: float,
-    text_signal_score: float | None,
-    candidate_source: str,
-) -> float:
-    weights = {
-        "event": 0.24,
-        "theme": 0.16,
-        "info": 0.18,
-        "module": 0.16,
-        "market": 0.12,
-        "account": 0.08,
-    }
-    weighted_sum = (
-        event_support_score * weights["event"]
-        + theme_alignment_score * weights["theme"]
-        + information_edge_score * weights["info"]
-        + module_score * weights["module"]
-        + market_fit_score * weights["market"]
-        + account_fit_score * weights["account"]
-    )
-    total_weight = sum(weights.values())
-    if capital_confirmation_score is not None:
-        weighted_sum += capital_confirmation_score * 0.06
-        total_weight += 0.06
-    if text_signal_score is not None:
-        weighted_sum += text_signal_score * 0.06
-        total_weight += 0.06
-    score = weighted_sum / total_weight
-    if candidate_source == "module_direct":
-        score = min(score, 0.61)
-    elif candidate_source == "module_theme_resonance":
-        score = min(score, 0.66)
-    elif candidate_source == "module_event_resonance":
-        score = min(score + 0.01, 0.74)
-    elif candidate_source in {"event_direct", "theme_priority"}:
-        score += 0.02
-    elif candidate_source in {"event_theme_resonance", "full_resonance"}:
-        score += 0.04
-    return round(_clamp_score(score), 3)
-
-
 def _text_signal_score(stock_code: str, industry_tags: list[str], text_watch_records: list[dict]) -> tuple[float | None, list[dict]]:
     relevant_records = find_relevant_text_signals(
         text_watch_records,
@@ -559,10 +573,12 @@ def build_candidate_cards(
     technical_modules: list[TechnicalModule],
     event_cards: list[EventCard],
     theme_cards: list[ThemeCard],
+    macro_event_cards: list[MacroEventCard] | None = None,
     capital_cards: list[CapitalBehaviorCard] | None = None,
     text_watch_records: list[dict] | None = None,
     module_signals: list[ModuleSignal] | None = None,
     available_module_ids: set[str] | None = None,
+    setup_policy: dict[str, SetupPolicySignal] | None = None,
 ) -> list[CandidateCard]:
     text_watch_records = text_watch_records if text_watch_records is not None else load_text_signal_watch(trade_date)
     quote_map = _load_market_quote_map(trade_date)
@@ -651,10 +667,15 @@ def build_candidate_cards(
                 if tag.strip()
             }
         )
+        macro_alignment_score, related_macro_events = _macro_alignment_score(
+            industry_tags=industry_tags,
+            macro_event_cards=macro_event_cards,
+        )
         text_signal_score, relevant_text_signals = _text_signal_score(stock_code, industry_tags, text_watch_records)
         information_edge_score = _information_edge_score(
             related_events=related_events,
             related_themes=related_themes,
+            macro_alignment_score=macro_alignment_score,
             text_signal_score=text_signal_score,
         )
         last_close_price, min_lot_cost, tradeability_score, tradeability_verdict, tradeability_risks = _tradeability_assessment(
@@ -667,6 +688,7 @@ def build_candidate_cards(
             candidate_source=candidate_source,
             event_support_score=event_support_score,
             theme_alignment_score=theme_alignment_score,
+            macro_alignment_score=macro_alignment_score,
         )
 
         # active_module_ids 合并规则推荐 + 模块信号实际产出
@@ -711,9 +733,57 @@ def build_candidate_cards(
             disqualify_flags.append("avoid_chasing_limit_up")
         if text_signal_score is not None and text_signal_bias(relevant_text_signals) <= -0.35:
             disqualify_flags.append("text_watch_risk_overhang")
+        if macro_alignment_score is not None and macro_alignment_score <= 0.35:
+            disqualify_flags.append("macro_headwind")
         if module_agg.get("has_avoid"):
             disqualify_flags.append("module_avoid_signal")
         disqualify_flags.extend(tradeability_risks)
+
+        fusion_result = evaluate_candidate_fusion(
+            snapshot=market_regime,
+            account=account,
+            fusion_input=CandidateFusionInput(
+                candidate_source=candidate_source,
+                technical_state=technical_state,
+                event_support_score=event_support_score,
+                theme_alignment_score=theme_alignment_score,
+                information_edge_score=information_edge_score,
+                module_score=module_score,
+                capital_confirmation_score=capital_confirmation_score,
+                market_fit_score=market_fit_score,
+                account_fit_score=account_fit_score,
+                tradeability_score=tradeability_score,
+                tradeability_verdict=tradeability_verdict,
+                text_signal_score=text_signal_score,
+                has_bearish_event=any(card.bullish_bearish == "bearish" for card in related_events),
+                active_module_count=len(active_module_ids),
+            ),
+        )
+        policy_signal = (setup_policy or {}).get(fusion_result.setup_type)
+        policy_status = policy_signal.status if policy_signal is not None else "neutral"
+        policy_score = policy_signal.score_multiplier if policy_signal is not None else 1.0
+        policy_action_floor = policy_signal.action_score_floor if policy_signal is not None else 0.60
+        policy_position_multiplier = policy_signal.position_cap_multiplier if policy_signal is not None else 1.0
+        if policy_signal is not None:
+            candidate_score = round(_clamp_score(fusion_result.fusion_score * policy_signal.score_multiplier), 3)
+            if policy_signal.status == "disabled":
+                disqualify_flags.append("setup_policy_disabled")
+                if fusion_result.fusion_verdict == "actionable":
+                    fusion_verdict = "watch"
+                else:
+                    fusion_verdict = fusion_result.fusion_verdict
+            elif policy_signal.status == "cautious":
+                disqualify_flags.append("setup_policy_cautious")
+                fusion_verdict = "watch" if fusion_result.fusion_verdict == "actionable" else fusion_result.fusion_verdict
+            else:
+                fusion_verdict = fusion_result.fusion_verdict
+            disqualify_flags.extend(policy_signal.notes)
+        else:
+            candidate_score = fusion_result.fusion_score
+            fusion_verdict = fusion_result.fusion_verdict
+        disqualify_flags.extend(fusion_result.fusion_notes)
+        if fusion_verdict == "avoid":
+            disqualify_flags.append("fusion_avoid")
 
         diagnostic_summary, diagnostic_risk_notes = _diagnostic_summary_clean(
             stock_code=stock_code,
@@ -729,21 +799,25 @@ def build_candidate_cards(
             capital_total=account.capital_total,
         )
 
-        candidate_score = _weighted_candidate_score(
-            event_support_score=event_support_score,
-            theme_alignment_score=theme_alignment_score,
-            information_edge_score=information_edge_score,
-            module_score=module_score,
-            capital_confirmation_score=capital_confirmation_score,
-            market_fit_score=market_fit_score,
-            account_fit_score=account_fit_score,
-            text_signal_score=text_signal_score,
-            candidate_source=candidate_source,
-        )
         supporting_cards = [card.event_id for card in related_events] + [card.theme_id for card in related_themes]
         rationale_parts = [
             f"source={candidate_source}",
+            f"setup_type={fusion_result.setup_type}",
+            f"setup_confidence={fusion_result.setup_confidence:.2f}",
+            f"setup_policy={policy_status}",
+            f"setup_policy_score={policy_score:.2f}",
+            f"setup_action_floor={policy_action_floor:.2f}",
+            f"setup_position_multiplier={policy_position_multiplier:.2f}",
+            f"market_gate={fusion_result.market_gate_reason}",
+            f"dominant_driver={fusion_result.dominant_driver}",
             f"market={market_regime.risk_mode}/{market_regime.style_lead}",
+            f"fusion_verdict={fusion_verdict}",
+            f"fusion_score={candidate_score:.2f}",
+            f"market_permission={fusion_result.market_permission_score:.2f}",
+            f"driver_conviction={fusion_result.driver_conviction_score:.2f}",
+            f"thesis_quality={fusion_result.thesis_quality_score:.2f}",
+            f"technical_confirmation={fusion_result.technical_confirmation_score:.2f}",
+            f"execution_readiness={fusion_result.execution_readiness_score:.2f}",
             f"event_score={event_support_score:.2f}",
             f"theme_score={theme_alignment_score:.2f}",
             f"info_edge={information_edge_score:.2f}",
@@ -755,6 +829,12 @@ def build_candidate_cards(
         if text_signal_score is not None:
             rationale_parts.append(f"text_signal_score={text_signal_score:.2f}")
             rationale_parts.append(f"text_signal_focus={text_signal_focus_summary(relevant_text_signals)}")
+        if macro_alignment_score is not None:
+            rationale_parts.append(f"macro_alignment_score={macro_alignment_score:.2f}")
+        if related_macro_events:
+            rationale_parts.append(
+                "macro_events=" + ", ".join(card.title for card in related_macro_events[:2])
+            )
         if active_module_ids:
             rationale_parts.append(f"modules={', '.join(active_module_ids)}")
         if last_close_price is not None:
@@ -774,9 +854,26 @@ def build_candidate_cards(
                 trade_date=trade_date,
                 candidate_source=candidate_source,
                 candidate_score=candidate_score,
+                fusion_score=candidate_score,
+                fusion_verdict=fusion_verdict,
+                setup_type=fusion_result.setup_type,
+                setup_confidence=fusion_result.setup_confidence,
+                setup_policy_status=policy_status,
+                setup_policy_score=policy_score,
+                setup_action_floor=policy_action_floor,
+                setup_position_cap_multiplier=policy_position_multiplier,
+                market_gate_pass=fusion_result.market_gate_pass,
+                market_gate_reason=fusion_result.market_gate_reason,
+                dominant_driver=fusion_result.dominant_driver,
                 technical_state=technical_state,
+                market_permission_score=fusion_result.market_permission_score,
+                driver_conviction_score=fusion_result.driver_conviction_score,
+                thesis_quality_score=fusion_result.thesis_quality_score,
+                technical_confirmation_score=fusion_result.technical_confirmation_score,
+                execution_readiness_score=fusion_result.execution_readiness_score,
                 event_support_score=event_support_score,
                 theme_alignment_score=theme_alignment_score,
+                macro_alignment_score=macro_alignment_score,
                 capital_confirmation_score=capital_confirmation_score,
                 information_edge_score=information_edge_score,
                 market_fit_score=market_fit_score,
@@ -784,6 +881,7 @@ def build_candidate_cards(
                 active_module_ids=active_module_ids,
                 disqualify_flags=list(dict.fromkeys(disqualify_flags)),
                 supporting_cards=supporting_cards,
+                supporting_macro_events=[card.macro_event_id for card in related_macro_events],
                 candidate_rationale="; ".join(rationale_parts),
                 last_close_price=last_close_price,
                 board_lot_size=account.board_lot_size,
@@ -792,11 +890,14 @@ def build_candidate_cards(
                 tradeability_verdict=tradeability_verdict,
                 diagnostic_summary=diagnostic_summary,
                 diagnostic_risk_notes=diagnostic_risk_notes,
+                fusion_notes=list(fusion_result.fusion_notes),
             )
         )
 
     cards.sort(
         key=lambda card: (
+            0 if card.market_gate_pass else 1,
+            -(card.setup_confidence if card.setup_confidence is not None else 0.0),
             -(card.candidate_score if card.candidate_score is not None else 0.0),
             len(card.disqualify_flags),
             card.stock_code,

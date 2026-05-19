@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from trading_system.context.cards import CapitalBehaviorCard, EventCard, MarketRegimeSnapshot, ThemeCard
+from trading_system.context.cards import CapitalBehaviorCard, EventCard, MacroEventCard, MarketRegimeSnapshot, ThemeCard
 from trading_system.decision.account import AccountConstraints
 from trading_system.signal.technical_modules import TechnicalModule
 
@@ -12,6 +12,7 @@ def render_analysis_bundle_markdown(
     technical_modules: list[TechnicalModule],
     event_cards: list[EventCard],
     theme_cards: list[ThemeCard],
+    macro_event_cards: list[MacroEventCard],
     capital_behavior_cards: list[CapitalBehaviorCard],
 ) -> str:
     lines = [
@@ -26,6 +27,8 @@ def render_analysis_bundle_markdown(
         "",
         "## Account Constraints",
         f"- profile_name: `{account.profile_name}`",
+        f"- trading_style: `{account.trading_style}`",
+        f"- target_return_mode: `{account.target_return_mode}`",
         f"- capital_total: `{account.capital_total}`",
         f"- single_position_max_pct: `{account.single_position_max_pct}`",
         f"- max_holdings: `{account.max_holdings}`",
@@ -55,6 +58,15 @@ def render_analysis_bundle_markdown(
         for card in theme_cards:
             lines.append(
                 f"- {card.theme_name}: trigger `{card.trigger_type}`, continuation `{card.continuation_guess}`"
+            )
+
+    lines.extend(["", "## Macro Event Cards"])
+    if not macro_event_cards:
+        lines.append("- none")
+    else:
+        for card in macro_event_cards:
+            lines.append(
+                f"- {card.title}: `{card.bias}` / `{card.impact_scope}` / beneficiaries `{', '.join(card.beneficiary_industries) if card.beneficiary_industries else 'none'}`"
             )
 
     lines.extend(["", "## Capital Behavior Cards"])

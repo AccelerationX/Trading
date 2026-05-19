@@ -275,6 +275,11 @@ class LLMWorkpacksTest(unittest.TestCase):
             markdown = render_llm_workpacks_markdown("2026-05-06", packets)
             self.assertIn("LLM Workpacks - 2026-05-06", markdown)
             self.assertIn("event_deepening_agent", markdown)
+            self.assertIn("packet_family", markdown)
+            stable_packets = workpack_cli.build_llm_workpacks("2026-05-06", mode="stable")
+            self.assertLess(len(stable_packets), len(packets))
+            self.assertFalse(any(packet.packet_family == "review_memory" for packet in stable_packets))
+            self.assertTrue(all(packet.packet_id.startswith("2026-05-06_") for packet in stable_packets))
 
 
 if __name__ == "__main__":

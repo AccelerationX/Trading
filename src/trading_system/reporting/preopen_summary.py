@@ -5,9 +5,10 @@ from dataclasses import asdict
 from pathlib import Path
 
 from trading_system.config.paths import INBOX_DIR, OUTPUTS_DIR
-from trading_system.context.cards import CandidateCard, MarketRegimeSnapshot, ThemeCard, TradePlanCard
+from trading_system.context.cards import CandidateCard, MacroEventCard, MarketRegimeSnapshot, ThemeCard, TradePlanCard
 from trading_system.decision.account import AccountConstraints
 from trading_system.decision.holdings import HoldingAssessment, PortfolioSnapshot
+from trading_system.decision.market_gate import evaluate_market_gate
 from trading_system.ingest.simple_tabular import read_records
 
 
@@ -27,6 +28,12 @@ def _safe_num(value: float | None) -> str:
     if value is None:
         return "n/a"
     return f"{value:,.2f}"
+
+
+def _safe_score(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.2f}"
 
 
 def _safe_price(value: float | None) -> str:
@@ -51,12 +58,16 @@ def _cn_value(value: str) -> str:
         "bearish": "偏空",
         "large_cap_lead": "大盘/权重领先",
         "small_cap_lead": "小票领先",
+        "mixed": "混合",
         "balanced": "均衡",
         "strong": "强",
         "medium": "中",
         "weak": "弱",
         "high": "高",
         "low": "低",
+        "warm": "温和",
+        "hot": "偏热",
+        "cool": "偏冷",
         "contraction": "收缩",
         "expansion": "扩张",
         "fragile_leaders": "龙头不稳",
@@ -76,6 +87,31 @@ def _cn_value(value: str) -> str:
         "defensive_wait": "偏防守等待",
         "buy_pilot": "试仓买入",
         "watch_only": "仅观察",
+        "broad_uptrend": "指数普遍上行",
+        "broad_downtrend": "指数普遍下行",
+        "stabilizing": "止跌企稳",
+        "mixed_range": "震荡分化",
+        "broadly_aligned_up": "主要指数同步偏强",
+        "broadly_aligned_down": "主要指数同步偏弱",
+        "divergent": "指数分化",
+        "cross_border_diplomacy": "跨境外交",
+        "geopolitical_conflict": "地缘冲突",
+        "tariff_or_sanction": "关税或制裁",
+        "fiscal_or_consumption_stimulus": "财政或消费刺激",
+        "monetary_easing": "货币宽松",
+        "market_rule_or_reform": "市场规则或改革",
+        "macro_cross_border": "跨境宏观影响",
+        "global_risk_aversion": "全球风险偏好压制",
+        "global_trade_friction": "全球贸易摩擦",
+        "domestic_demand": "内需驱动",
+        "liquidity": "流动性驱动",
+        "market_structure": "市场结构影响",
+        "medium_term_policy_line": "中期政策主线",
+        "multi_day": "多日延续",
+        "multi_day_follow_up": "多日跟随",
+        "event_follow_up": "事件跟踪",
+        "needs_review": "待观察",
+        "none": "无",
     }
     return mapping.get(str(value or "").strip(), str(value or "").strip())
 
@@ -396,10 +432,12 @@ def _direct_trade_opinion(
 
 def _action_summary(
     market_regime: MarketRegimeSnapshot,
+    account: AccountConstraints,
     theme_board: list[dict],
     top_new_ideas: list[TradePlanCard],
     watchlist: list[TradePlanCard],
 ) -> dict:
+    gate = evaluate_market_gate(market_regime, account)
     focus_theme = theme_board[0] if theme_board else {}
     posture = "small_probe"
     note = "优先小仓位试错，等待开盘后确认。"
@@ -424,6 +462,9 @@ def _action_summary(
     return {
         "preferred_posture": posture,
         "posture_note": note,
+        "best_setup": top_new_ideas[0].setup_type if top_new_ideas else "",
+        "blocked_setups": list(gate.blocked_setups),
+        "allowed_setups": list(gate.allowed_setups),
         "focus_theme": focus_theme.get("theme_name", ""),
         "focus_theme_strength": focus_theme.get("strength_label", ""),
         "tradable_theme_count": theme_count,
@@ -698,6 +739,10 @@ def build_preopen_summary_payload(
     candidate_cards: list[CandidateCard],
     trade_plans: list[TradePlanCard],
     theme_cards: list[ThemeCard],
+    macro_event_cards: list[MacroEventCard] | None = None,
+    setup_performance: dict | None = None,
+    execution_feedback: dict | None = None,
+    execution_behavior: dict | None = None,
 ) -> dict:
     held_codes = {item.stock_code for item in holding_assessments}
     top_new_ideas = _top_new_ideas(trade_plans, held_codes)
@@ -711,7 +756,7 @@ def build_preopen_summary_payload(
         market_regime=market_regime,
     )
     theme_context = _theme_context_map(theme_board)
-    action_summary = _action_summary(market_regime, theme_board, top_new_ideas, watchlist)
+    action_summary = _action_summary(market_regime, account, theme_board, top_new_ideas, watchlist)
 
     payload = {
         "trade_date": trade_date,
@@ -722,6 +767,8 @@ def build_preopen_summary_payload(
         "market_view": asdict(market_regime),
         "account_view": {
             "profile_name": account.profile_name,
+            "trading_style": account.trading_style,
+            "target_return_mode": account.target_return_mode,
             "capital_total": account.capital_total,
             "single_position_max_pct": account.single_position_max_pct,
             "single_trade_capital_max": account.single_trade_capital_max,
@@ -739,6 +786,8 @@ def build_preopen_summary_payload(
                 "stock_code": plan.stock_code,
                 "stock_name": stock_name_map.get(plan.stock_code, ""),
                 "action": plan.action,
+                "setup_type": plan.setup_type,
+                "setup_policy_status": plan.setup_policy_status,
                 "priority_rank": plan.priority_rank,
                 "entry_condition": plan.entry_condition,
                 "position_size_rule": plan.position_size_rule,
@@ -768,6 +817,8 @@ def build_preopen_summary_payload(
                 "stock_code": plan.stock_code,
                 "stock_name": stock_name_map.get(plan.stock_code, ""),
                 "priority_rank": plan.priority_rank,
+                "setup_type": plan.setup_type,
+                "setup_policy_status": plan.setup_policy_status,
                 "rationale": plan.llm_refined_plan or plan.rationale,
                 "entry_condition": plan.entry_condition,
                 "risk_notes": list(plan.risk_notes),
@@ -792,6 +843,23 @@ def build_preopen_summary_payload(
             }
             for card in _focus_themes(theme_cards)
         ],
+        "macro_event_board": [
+            {
+                "title": card.title,
+                "event_type": card.event_type,
+                "bias": card.bias,
+                "impact_scope": card.impact_scope,
+                "confidence": card.confidence,
+                "beneficiary_industries": list(card.beneficiary_industries),
+                "risk_industries": list(card.risk_industries),
+                "confirmation_signals": list(card.confirmation_signals),
+                "summary": card.summary,
+            }
+            for card in list(macro_event_cards or [])[:5]
+        ],
+        "setup_performance_board": list((setup_performance or {}).get("setup_summary", []))[:5],
+        "execution_feedback_board": list((execution_feedback or {}).get("setup_summary", []))[:5],
+        "execution_behavior_board": list((execution_behavior or {}).get("setup_summary", []))[:5],
     }
     return payload
 
@@ -810,6 +878,10 @@ def render_preopen_summary_markdown(payload: dict) -> str:
     top_new_ideas = list(payload.get("top_new_ideas", []))
     watchlist = list(payload.get("watchlist", []))
     theme_board = list(payload.get("theme_board", []))
+    macro_event_board = list(payload.get("macro_event_board", []))
+    setup_performance_board = list(payload.get("setup_performance_board", []))
+    execution_feedback_board = list(payload.get("execution_feedback_board", []))
+    execution_behavior_board = list(payload.get("execution_behavior_board", []))
     focus_themes = list(payload.get("focus_themes", []))
 
     lines = [
@@ -827,9 +899,17 @@ def render_preopen_summary_markdown(payload: dict) -> str:
         f"- 情绪阶段：`{_cn_value(market_view.get('sentiment_cycle', ''))}`",
         f"- 龙头稳定性：`{_cn_value(market_view.get('leader_stability', ''))}`",
         f"- 事件驱动偏向：`{_cn_value(market_view.get('event_driven_bias', ''))}`",
+        f"- 指数趋势状态：`{_cn_value(market_view.get('index_trend_state', ''))}`",
+        f"- 指数一致性：`{_cn_value(market_view.get('index_alignment', ''))}`",
+        f"- 趋势强度分：`{_safe_score(market_view.get('trend_strength_score'))}`",
+        f"- 投机热度分：`{_safe_score(market_view.get('speculative_heat_score'))}`",
+        f"- 情绪压力分：`{_safe_score(market_view.get('sentiment_pressure_score'))}`",
+        f"- 炸板失败率：`{_safe_pct(market_view.get('breakout_failure_rate'))}`",
         f"- 开盘提示：{_cn_display_text(market_view.get('opening_risk_note', '') or '无')}",
         "",
         "## 账户约束",
+        f"- 交易风格：`{account_view.get('trading_style', '') or 'n/a'}`",
+        f"- 收益模式：`{account_view.get('target_return_mode', '') or 'n/a'}`",
         f"- 总资金：`{account_view.get('capital_total')}`",
         f"- 单次最大可用资金：`{account_view.get('single_trade_capital_max')}`",
         f"- 当日最多新开仓：`{account_view.get('max_new_positions_per_day')}`",
@@ -881,7 +961,7 @@ def render_preopen_summary_markdown(payload: dict) -> str:
                     f"- 置信度：`{_cn_value(item.get('conviction', ''))}`",
                     f"- 主线强度：`{_cn_value(item.get('strength_label', ''))}`",
                     f"- 强度说明：{_cn_display_text(item.get('strength_note', '') or '无')}",
-                    f"- 持续性判断：`{item.get('continuation_guess', '') or '无'}`",
+                    f"- 持续性判断：`{_cn_value(item.get('continuation_guess', '') or '无')}`",
                     f"- 优先行业：`{', '.join(item.get('priority_industries', [])) if item.get('priority_industries') else '无'}`",
                     f"- 触发事件：`{', '.join(item.get('trigger_labels', [])) if item.get('trigger_labels') else '无'}`",
                     f"- 直接受益：`{', '.join(item.get('direct_beneficiaries', [])) if item.get('direct_beneficiaries') else '无'}`",
@@ -967,6 +1047,64 @@ def render_preopen_summary_markdown(payload: dict) -> str:
                 ]
             )
 
+    lines.append("## 宏观事件")
+    if not macro_event_board:
+        lines.append("- 暂无需要额外强调的宏观事件")
+    else:
+        for item in macro_event_board:
+            lines.extend(
+                [
+                    f"### {item.get('title', '')}",
+                    f"- 事件类型：`{_cn_value(item.get('event_type', '') or 'none')}`",
+                    f"- 方向判断：`{_cn_value(item.get('bias', '')) or item.get('bias', 'none')}`",
+                    f"- 影响范围：`{_cn_value(item.get('impact_scope', '') or 'none')}`",
+                    f"- 置信度：`{_safe_score(item.get('confidence'))}`",
+                    f"- 受益行业：`{', '.join(item.get('beneficiary_industries', [])) if item.get('beneficiary_industries') else 'none'}`",
+                    f"- 受压行业：`{', '.join(item.get('risk_industries', [])) if item.get('risk_industries') else 'none'}`",
+                    f"- 需要确认：`{', '.join(item.get('confirmation_signals', [])) if item.get('confirmation_signals') else 'none'}`",
+                    f"- 摘要：{_cn_display_text(item.get('summary', '') or '无')}",
+                    "",
+                ]
+            )
+
+    lines.append("## Setup 复盘")
+    if not setup_performance_board:
+        lines.append("- 暂无 setup 历史评估")
+    else:
+        for item in setup_performance_board:
+            buy_pilot_3d = dict(item.get("buy_pilot_horizons", {})).get("3d", {})
+            lines.extend(
+                [
+                    f"### {item.get('setup_type', '')}",
+                    f"- 样本数：`{item.get('sample_count', 0)}`",
+                    f"- buy_pilot 数：`{item.get('buy_pilot_count', 0)}`",
+                    f"- 平均 setup 置信度：`{_safe_score(item.get('avg_setup_confidence'))}`",
+                    f"- 5日平均最大有利波动：`{_safe_pct(item.get('avg_mfe_5d'))}`",
+                    f"- 5日平均最大不利波动：`{_safe_pct(item.get('avg_mae_5d'))}`",
+                    f"- buy_pilot 3日平均收益：`{_safe_pct(buy_pilot_3d.get('avg_return'))}` / 胜率：`{_safe_pct(buy_pilot_3d.get('win_rate'))}` / 3%命中率：`{_safe_pct(buy_pilot_3d.get('hit_rate_3pct'))}`",
+                    "",
+                ]
+            )
+
+    lines.append("## 实盘反馈")
+    if not execution_feedback_board and not execution_behavior_board:
+        lines.append("- 暂无实盘反馈样本")
+    else:
+        for item in execution_feedback_board:
+            matching_behavior = next(
+                (entry for entry in execution_behavior_board if entry.get("setup_type") == item.get("setup_type")),
+                {},
+            )
+            lines.extend(
+                [
+                    f"### {item.get('setup_type', '')}",
+                    f"- 实盘平均收益：`{_safe_pct(item.get('avg_realized_return'))}` / 胜率：`{_safe_pct(item.get('win_rate'))}` / 样本数：`{item.get('closed_trade_count', 0)}`",
+                    f"- 执行成交率：`{_safe_pct(matching_behavior.get('fill_rate'))}` / 取消或跳过率：`{_safe_pct(matching_behavior.get('skip_rate'))}` / 部分成交率：`{_safe_pct(matching_behavior.get('partial_rate'))}`",
+                    f"- 买入滑点：`{_safe_pct(matching_behavior.get('avg_buy_slippage_pct'))}` / 执行备注：`{', '.join(matching_behavior.get('notes', [])) or '无'}`",
+                    "",
+                ]
+            )
+
     lines.append("## 观察主题")
     if not focus_themes:
         lines.append("- 暂无额外观察主题")
@@ -975,10 +1113,10 @@ def render_preopen_summary_markdown(payload: dict) -> str:
             lines.extend(
                 [
                     f"### {item.get('theme_name', '')}",
-                    f"- 持续性判断：`{item.get('continuation_guess', '') or '无'}`",
+                    f"- 持续性判断：`{_cn_value(item.get('continuation_guess', '') or '无')}`",
                     f"- 优先行业：`{', '.join(item.get('priority_industries', [])) if item.get('priority_industries') else '无'}`",
                     f"- 优先股票：`{', '.join(item.get('priority_stocks', [])) if item.get('priority_stocks') else '无'}`",
-                    f"- LLM 交易性判断：`{item.get('llm_tradeability_verdict', '') or '无'}`",
+                    f"- LLM 交易性判断：`{_cn_value(item.get('llm_tradeability_verdict', '') or '无')}`",
                     "",
                 ]
             )

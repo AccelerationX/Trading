@@ -75,6 +75,7 @@ class AnalysisBundleTest(unittest.TestCase):
                     trigger_time="2026-05-06 18:00:00",
                 )
             ],
+            macro_event_cards=[],
             capital_behavior_cards=[
                 CapitalBehaviorCard(
                     card_id="c1",

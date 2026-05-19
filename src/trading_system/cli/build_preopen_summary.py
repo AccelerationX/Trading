@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from trading_system.config.paths import OUTPUTS_DIR, PROCESSED_DATA_DIR
-from trading_system.context.cards import CandidateCard, MarketRegimeSnapshot, ThemeCard, TradePlanCard
+from trading_system.context.cards import CandidateCard, MacroEventCard, MarketRegimeSnapshot, ThemeCard, TradePlanCard
 from trading_system.decision.account import AccountConstraints
 from trading_system.decision.holdings import (
     PortfolioSnapshot,
@@ -57,12 +57,45 @@ def _load_themes(trade_date: str) -> list[ThemeCard]:
     return [ThemeCard(**item) for item in payload]
 
 
+def _load_macro_events(trade_date: str) -> list[MacroEventCard]:
+    path = PROCESSED_DATA_DIR / "macro_events" / f"macro_event_cards_{trade_date}.json"
+    if not path.exists():
+        return []
+    payload = list(_load_json(path))
+    return [MacroEventCard(**item) for item in payload]
+
+
+def _load_setup_performance(trade_date: str) -> dict | None:
+    path = PROCESSED_DATA_DIR / "evaluation" / f"setup_performance_{trade_date}.json"
+    if not path.exists():
+        return None
+    return dict(_load_json(path))
+
+
+def _load_execution_feedback(trade_date: str) -> dict | None:
+    path = PROCESSED_DATA_DIR / "evaluation" / f"execution_feedback_{trade_date}.json"
+    if not path.exists():
+        return None
+    return dict(_load_json(path))
+
+
+def _load_execution_behavior(trade_date: str) -> dict | None:
+    path = PROCESSED_DATA_DIR / "evaluation" / f"execution_behavior_{trade_date}.json"
+    if not path.exists():
+        return None
+    return dict(_load_json(path))
+
+
 def build_preopen_summary(trade_date: str, portfolio: PortfolioSnapshot | None = None) -> tuple[Path, Path]:
     market_regime = _load_market_regime(trade_date)
     account = _load_account()
     candidates = _load_candidates(trade_date)
     trade_plans = _load_trade_plans(trade_date)
     theme_cards = _load_themes(trade_date)
+    macro_event_cards = _load_macro_events(trade_date)
+    setup_performance = _load_setup_performance(trade_date)
+    execution_feedback = _load_execution_feedback(trade_date)
+    execution_behavior = _load_execution_behavior(trade_date)
     portfolio_snapshot = portfolio or load_portfolio_snapshot()
     holding_assessments = assess_portfolio_positions(
         portfolio_snapshot,
@@ -80,6 +113,10 @@ def build_preopen_summary(trade_date: str, portfolio: PortfolioSnapshot | None =
         candidate_cards=candidates,
         trade_plans=trade_plans,
         theme_cards=theme_cards,
+        macro_event_cards=macro_event_cards,
+        setup_performance=setup_performance,
+        execution_feedback=execution_feedback,
+        execution_behavior=execution_behavior,
     )
     json_path = save_preopen_summary_payload(trade_date, payload)
     md_path = preopen_summary_output_dir() / f"preopen_summary_{trade_date}.md"

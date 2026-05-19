@@ -23,6 +23,7 @@
         "theme_deepening_agent",
         "capital_interpret_agent",
         "candidate_diagnosis_agent",
+        "trade_plan_refine_agent",
         "review_memory_agent"
       ]
     },
@@ -64,7 +65,8 @@
         }
       ],
       "agent_allowlist": [
-        "trade_plan_refine_agent"
+        "trade_plan_refine_agent",
+        "candidate_diagnosis_agent"
       ]
     },
     {

@@ -288,6 +288,59 @@ def _provider_map() -> dict[str, LLMProviderConfig]:
     return {provider.provider_id: provider for provider in load_llm_provider_registry()}
 
 
+def _provider_supports_agent(provider: LLMProviderConfig, agent_id: str) -> bool:
+    return not provider.agent_allowlist or agent_id in provider.agent_allowlist
+
+
+def _resolve_provider_model(provider: LLMProviderConfig, agent_id: str) -> str:
+    for override in provider.agent_overrides:
+        if override.agent_id == agent_id and override.model:
+            return override.model
+    return provider.default_model
+
+
+def _build_route_for_provider(
+    packet: LLMWorkPacket,
+    provider: LLMProviderConfig,
+    environ: dict[str, str],
+) -> LLMExecutionRoute | None:
+    if not provider.enabled or not _provider_supports_agent(provider, packet.agent_id):
+        return None
+    model = _resolve_provider_model(provider, packet.agent_id)
+    api_key_required = bool(provider.api_key_env)
+    api_base_required = bool(provider.api_base_env) and not provider.api_base_default
+    api_key_present = bool(provider.api_key_env and environ.get(provider.api_key_env))
+    api_base_present = bool(provider.api_base_env and environ.get(provider.api_base_env))
+    credentials_ready = (not api_key_required or api_key_present) and (not api_base_required or api_base_present)
+    status = "ready" if credentials_ready and model else "missing_credentials"
+    notes: list[str] = []
+    if not model:
+        notes.append("missing_model")
+    if api_key_required and not api_key_present:
+        notes.append("missing_api_key")
+    if api_base_required and not api_base_present:
+        notes.append("missing_api_base")
+    if not api_key_required:
+        notes.append("no_api_key_required")
+    return LLMExecutionRoute(
+        packet_id=packet.packet_id,
+        agent_id=packet.agent_id,
+        provider_id=provider.provider_id,
+        provider_type=provider.provider_type,
+        model=model,
+        status=status,
+        api_key_env=provider.api_key_env,
+        api_key_present=api_key_present,
+        api_base_env=provider.api_base_env,
+        api_base_present=api_base_present,
+        api_base_default=provider.api_base_default,
+        timeout_seconds=provider.timeout_seconds,
+        max_retries=provider.max_retries,
+        output_mode="json_contract" if provider.supports_json_mode else "text_contract",
+        notes=tuple(notes),
+    )
+
+
 def _resolve_api_base(route: LLMExecutionRoute, provider: LLMProviderConfig, environ: dict[str, str]) -> str:
     if route.api_base_env and environ.get(route.api_base_env):
         return str(environ[route.api_base_env]).rstrip("/")
@@ -442,6 +495,62 @@ def _call_ollama_provider(
     return normalized
 
 
+def _call_live_provider_once(
+    packet: LLMWorkPacket,
+    route: LLMExecutionRoute,
+    provider: LLMProviderConfig,
+    environ: dict[str, str],
+) -> LLMEnrichmentResult:
+    if route.provider_type == "openai_compatible":
+        return _call_openai_compatible_provider(packet, route, provider, environ)
+    if route.provider_type in {"ollama_chat", "local_ollama"}:
+        return _call_ollama_provider(packet, route, provider, environ)
+    raise RuntimeError(f"unsupported_live_provider_type:{route.provider_type}")
+
+
+def _call_live_provider_with_retries(
+    packet: LLMWorkPacket,
+    route: LLMExecutionRoute,
+    provider: LLMProviderConfig,
+    environ: dict[str, str],
+) -> tuple[LLMEnrichmentResult, list[str]]:
+    total_attempts = max(1, int(route.max_retries or 0) + 1)
+    last_error: Exception | None = None
+    for attempt in range(1, total_attempts + 1):
+        try:
+            result = _call_live_provider_once(packet, route, provider, environ)
+            notes: list[str] = []
+            if attempt > 1:
+                notes.append(f"retry_success_attempt={attempt}")
+            return result, notes
+        except Exception as exc:  # pragma: no cover - exercised by higher-level tests
+            last_error = exc
+    raise RuntimeError(
+        f"provider_failed_after_retries:{provider.provider_id}: attempts={total_attempts}: {last_error}"
+    )
+
+
+def _iter_fallback_routes(
+    packet: LLMWorkPacket,
+    providers: dict[str, LLMProviderConfig],
+    environ: dict[str, str],
+    *,
+    exclude_provider_id: str,
+    allowed_provider_ids: set[str] | None,
+) -> list[tuple[LLMProviderConfig, LLMExecutionRoute]]:
+    fallback_routes: list[tuple[LLMProviderConfig, LLMExecutionRoute]] = []
+    for provider in providers.values():
+        if provider.provider_id == exclude_provider_id:
+            continue
+        if allowed_provider_ids is not None and provider.provider_id not in allowed_provider_ids:
+            continue
+        route = _build_route_for_provider(packet, provider, environ)
+        if route is None or route.status != "ready":
+            continue
+        fallback_routes.append((provider, route))
+    return fallback_routes
+
+
 def _mock_result_for_packet(packet: LLMWorkPacket) -> LLMEnrichmentResult:
     payload: dict
     summary: str
@@ -510,6 +619,8 @@ def execute_llm_runtime_with_inputs(
     trade_date: str,
     packets: list[LLMWorkPacket],
     routes: list[LLMExecutionRoute],
+    *,
+    allowed_provider_ids: set[str] | None = None,
 ) -> tuple[Path, Path, list[LLMRuntimeRecord]]:
     packet_map = {packet.packet_id: packet for packet in packets}
     records: list[LLMRuntimeRecord] = []
@@ -518,7 +629,7 @@ def execute_llm_runtime_with_inputs(
 
     manual_batches: dict[str, list[dict]] = {}
     mock_results: dict[str, list[LLMEnrichmentResult]] = {}
-    live_results: dict[str, list[LLMEnrichmentResult]] = {}
+    live_results: dict[str, list[tuple[LLMEnrichmentResult, list[str]]]] = {}
 
     for route in routes:
         packet = packet_map.get(route.packet_id)
@@ -568,21 +679,50 @@ def execute_llm_runtime_with_inputs(
                 )
                 continue
             try:
-                live_results.setdefault(route.provider_id, []).append(
-                    _call_openai_compatible_provider(packet, route, provider, environ)
-                )
+                result, runtime_notes = _call_live_provider_with_retries(packet, route, provider, environ)
+                live_results.setdefault(route.provider_id, []).append((result, ["provider_response_written", *runtime_notes]))
             except Exception as exc:
-                records.append(
-                    LLMRuntimeRecord(
-                        packet_id=route.packet_id,
-                        provider_id=route.provider_id,
-                        provider_type=route.provider_type,
-                        target_object_type=packet.target_object_type,
-                        target_object_id=packet.target_object_id,
-                        status="failed",
-                        notes=[str(exc)],
+                fallback_used = False
+                for fallback_provider, fallback_route in _iter_fallback_routes(
+                    packet,
+                    providers,
+                    environ,
+                    exclude_provider_id=route.provider_id,
+                    allowed_provider_ids=allowed_provider_ids,
+                ):
+                    try:
+                        result, runtime_notes = _call_live_provider_with_retries(
+                            packet,
+                            fallback_route,
+                            fallback_provider,
+                            environ,
+                        )
+                        live_results.setdefault(fallback_provider.provider_id, []).append(
+                            (
+                                result,
+                                [
+                                    "provider_response_written",
+                                    f"fallback_from={route.provider_id}",
+                                    *runtime_notes,
+                                ],
+                            )
+                        )
+                        fallback_used = True
+                        break
+                    except Exception:
+                        continue
+                if not fallback_used:
+                    records.append(
+                        LLMRuntimeRecord(
+                            packet_id=route.packet_id,
+                            provider_id=route.provider_id,
+                            provider_type=route.provider_type,
+                            target_object_type=packet.target_object_type,
+                            target_object_id=packet.target_object_id,
+                            status="failed",
+                            notes=[str(exc)],
+                        )
                     )
-                )
         elif route.provider_type == "ollama_chat":
             provider = providers.get(route.provider_id)
             if provider is None:
@@ -599,21 +739,50 @@ def execute_llm_runtime_with_inputs(
                 )
                 continue
             try:
-                live_results.setdefault(route.provider_id, []).append(
-                    _call_ollama_provider(packet, route, provider, environ)
-                )
+                result, runtime_notes = _call_live_provider_with_retries(packet, route, provider, environ)
+                live_results.setdefault(route.provider_id, []).append((result, ["provider_response_written", *runtime_notes]))
             except Exception as exc:
-                records.append(
-                    LLMRuntimeRecord(
-                        packet_id=route.packet_id,
-                        provider_id=route.provider_id,
-                        provider_type=route.provider_type,
-                        target_object_type=packet.target_object_type,
-                        target_object_id=packet.target_object_id,
-                        status="failed",
-                        notes=[str(exc)],
+                fallback_used = False
+                for fallback_provider, fallback_route in _iter_fallback_routes(
+                    packet,
+                    providers,
+                    environ,
+                    exclude_provider_id=route.provider_id,
+                    allowed_provider_ids=allowed_provider_ids,
+                ):
+                    try:
+                        result, runtime_notes = _call_live_provider_with_retries(
+                            packet,
+                            fallback_route,
+                            fallback_provider,
+                            environ,
+                        )
+                        live_results.setdefault(fallback_provider.provider_id, []).append(
+                            (
+                                result,
+                                [
+                                    "provider_response_written",
+                                    f"fallback_from={route.provider_id}",
+                                    *runtime_notes,
+                                ],
+                            )
+                        )
+                        fallback_used = True
+                        break
+                    except Exception:
+                        continue
+                if not fallback_used:
+                    records.append(
+                        LLMRuntimeRecord(
+                            packet_id=route.packet_id,
+                            provider_id=route.provider_id,
+                            provider_type=route.provider_type,
+                            target_object_type=packet.target_object_type,
+                            target_object_id=packet.target_object_id,
+                            status="failed",
+                            notes=[str(exc)],
+                        )
                     )
-                )
         elif route.provider_type == "mock_contract":
             mock_results.setdefault(route.provider_id, []).append(_mock_result_for_packet(packet))
         else:
@@ -663,9 +832,9 @@ def execute_llm_runtime_with_inputs(
             )
 
     for provider_id, results in live_results.items():
-        response_path = _save_results_batch(trade_date, provider_id, results)
+        response_path = _save_results_batch(trade_date, provider_id, [item[0] for item in results])
         provider_type = providers.get(provider_id).provider_type if providers.get(provider_id) else "openai_compatible"
-        for result in results:
+        for result, runtime_notes in results:
             records.append(
                 LLMRuntimeRecord(
                     packet_id=result.packet_id,
@@ -675,7 +844,7 @@ def execute_llm_runtime_with_inputs(
                     target_object_id=result.target_object_id,
                     status="completed",
                     artifact_paths=[str(response_path)],
-                    notes=["provider_response_written"],
+                    notes=runtime_notes,
                 )
             )
 

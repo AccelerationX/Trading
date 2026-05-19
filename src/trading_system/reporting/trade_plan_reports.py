@@ -30,6 +30,9 @@ def render_trade_plan_markdown(trade_date: str, plans: list[TradePlanCard]) -> s
             [
                 f"## {plan.priority_rank}. {plan.stock_code}",
                 f"- action: `{plan.action}`",
+                f"- setup_type: `{plan.setup_type or 'none'}`",
+                f"- setup_policy_status: `{plan.setup_policy_status or 'none'}`",
+                f"- market_gate_reason: `{plan.market_gate_reason or 'none'}`",
                 f"- rationale: {plan.rationale}",
                 f"- entry_condition: {plan.entry_condition}",
                 f"- entry_zone: {plan.entry_zone or 'none'}",

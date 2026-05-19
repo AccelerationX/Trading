@@ -1,6 +1,28 @@
 from __future__ import annotations
 
-from trading_system.context.cards import CapitalBehaviorCard, EventCard, ThemeCard
+from trading_system.context.cards import CapitalBehaviorCard, EventCard, MacroEventCard, ThemeCard
+
+
+def _cn_macro_value(value: str) -> str:
+    mapping = {
+        "bullish": "偏多",
+        "neutral": "中性",
+        "bearish": "偏空",
+        "cross_border_diplomacy": "跨境外交",
+        "geopolitical_conflict": "地缘冲突",
+        "tariff_or_sanction": "关税或制裁",
+        "fiscal_or_consumption_stimulus": "财政或消费刺激",
+        "monetary_easing": "货币宽松",
+        "market_rule_or_reform": "市场规则或改革",
+        "macro_cross_border": "跨境宏观影响",
+        "global_risk_aversion": "全球风险偏好压制",
+        "global_trade_friction": "全球贸易摩擦",
+        "domestic_demand": "内需驱动",
+        "liquidity": "流动性驱动",
+        "market_structure": "市场结构影响",
+        "none": "无",
+    }
+    return mapping.get(str(value or "").strip(), str(value or "").strip())
 
 
 def render_event_cards_markdown(trade_date: str, cards: list[EventCard]) -> str:
@@ -49,6 +71,35 @@ def render_theme_cards_markdown(trade_date: str, cards: list[ThemeCard]) -> str:
                 f"- continuation_guess: `{card.continuation_guess}`",
                 f"- market_confirmation_needed: `{', '.join(card.market_confirmation_needed) if card.market_confirmation_needed else 'none'}`",
                 f"- contra_risks: `{', '.join(card.contra_risks) if card.contra_risks else 'none'}`",
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_macro_event_cards_markdown(trade_date: str, cards: list[MacroEventCard]) -> str:
+    lines = [f"# 宏观事件卡片 - {trade_date}", ""]
+    if not cards:
+        lines.append("- 无")
+        return "\n".join(lines) + "\n"
+
+    for card in cards:
+        lines.extend(
+            [
+                f"## {card.title}",
+                f"- 事件编号: `{card.macro_event_id}`",
+                f"- 事件类型: `{_cn_macro_value(card.event_type)}`",
+                f"- 来源类别: `{card.source_kind}`",
+                f"- 发布时间: `{card.publish_time}`",
+                f"- 方向判断: `{_cn_macro_value(card.bias)}`",
+                f"- 影响范围: `{_cn_macro_value(card.impact_scope)}`",
+                f"- 置信度: `{card.confidence}`",
+                f"- 受益行业: `{', '.join(card.beneficiary_industries) if card.beneficiary_industries else '无'}`",
+                f"- 承压行业: `{', '.join(card.risk_industries) if card.risk_industries else '无'}`",
+                f"- 相关市场: `{', '.join(card.related_markets) if card.related_markets else '无'}`",
+                f"- 需要确认: `{', '.join(card.confirmation_signals) if card.confirmation_signals else '无'}`",
+                f"- 风险标记: `{', '.join(card.risk_flags) if card.risk_flags else '无'}`",
+                f"- 摘要: {card.summary}",
                 "",
             ]
         )

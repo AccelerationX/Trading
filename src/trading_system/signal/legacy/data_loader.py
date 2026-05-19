@@ -37,6 +37,10 @@ def _default_cache_path() -> Path:
     return directory / "stock_history_panel.parquet"
 
 
+def stock_history_cache_path() -> Path:
+    return _default_cache_path()
+
+
 def _csv_dir_mtime(data_dir: Path) -> float:
     """获取目录下所有 CSV 的最新修改时间。"""
     mtimes = [p.stat().st_mtime for p in data_dir.glob("*.csv")]

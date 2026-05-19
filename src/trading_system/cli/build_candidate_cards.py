@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from dataclasses import asdict
 from pathlib import Path
 
 from trading_system.cli.build_analysis_bundle import build_analysis_bundle
 from trading_system.config.paths import OUTPUTS_DIR, PROCESSED_DATA_DIR
 from trading_system.context.candidate_cards import build_candidate_cards, save_candidate_cards
-from trading_system.context.cards import CapitalBehaviorCard, EventCard, MarketRegimeSnapshot, ThemeCard
+from trading_system.context.cards import CapitalBehaviorCard, EventCard, MacroEventCard, MarketRegimeSnapshot, ThemeCard
 from trading_system.context.text_signal_support import load_text_signal_watch
 from trading_system.decision.account import AccountConstraints
+from trading_system.evaluation.setup_policy import derive_setup_policy
 from trading_system.reporting.candidate_reports import render_candidate_cards_markdown
 from trading_system.reporting.module_signal_reports import render_module_signals_markdown
 from trading_system.signal.scanners.base import ModuleSignal
@@ -42,6 +44,60 @@ def _load_assistant_bundle(trade_date: str) -> dict:
     return dict(_load_json(path))
 
 
+def _extract_setup_perf_date(path: Path) -> str | None:
+    match = re.match(r"setup_performance_(\d{4}-\d{2}-\d{2})\.json$", path.name)
+    return match.group(1) if match else None
+
+
+def _extract_execution_feedback_date(path: Path) -> str | None:
+    match = re.match(r"execution_feedback_(\d{4}-\d{2}-\d{2})\.json$", path.name)
+    return match.group(1) if match else None
+
+
+def _extract_execution_behavior_date(path: Path) -> str | None:
+    match = re.match(r"execution_behavior_(\d{4}-\d{2}-\d{2})\.json$", path.name)
+    return match.group(1) if match else None
+
+
+def _latest_prior_payload(trade_date: str, *, pattern: str, extractor) -> dict | None:
+    directory = PROCESSED_DATA_DIR / "evaluation"
+    dated = sorted(
+        [
+            (date_value, path)
+            for path in directory.glob(pattern)
+            if (date_value := extractor(path)) and date_value < trade_date
+        ],
+        key=lambda item: item[0],
+    )
+    if not dated:
+        return None
+    _, path = dated[-1]
+    return dict(_load_json(path))
+
+
+def _load_prior_setup_policy(trade_date: str) -> dict:
+    performance_payload = _latest_prior_payload(
+        trade_date,
+        pattern="setup_performance_*.json",
+        extractor=_extract_setup_perf_date,
+    )
+    execution_feedback_payload = _latest_prior_payload(
+        trade_date,
+        pattern="execution_feedback_*.json",
+        extractor=_extract_execution_feedback_date,
+    )
+    execution_behavior_payload = _latest_prior_payload(
+        trade_date,
+        pattern="execution_behavior_*.json",
+        extractor=_extract_execution_behavior_date,
+    )
+    return derive_setup_policy(
+        performance_payload,
+        execution_feedback=execution_feedback_payload,
+        execution_behavior=execution_behavior_payload,
+    )
+
+
 def _save_module_signals(trade_date: str, module_signals: list[ModuleSignal]) -> tuple[Path, Path]:
     json_path = _module_signal_processed_dir() / f"module_signals_{trade_date}.json"
     md_path = _analysis_output_dir() / f"module_signals_{trade_date}.md"
@@ -68,8 +124,10 @@ def build_candidate_cards_from_bundle(
     technical_modules = [TechnicalModule(**item) for item in payload.get("technical_modules", [])]
     event_cards = [EventCard(**item) for item in payload.get("event_cards", [])]
     theme_cards = [ThemeCard(**item) for item in payload.get("theme_cards", [])]
+    macro_event_cards = [MacroEventCard(**item) for item in payload.get("macro_event_cards", [])]
     capital_cards = [CapitalBehaviorCard(**item) for item in payload.get("capital_behavior_cards", [])]
     text_watch_records = load_text_signal_watch(trade_date)
+    setup_policy = _load_prior_setup_policy(trade_date)
 
     module_signals = []
     scanners = load_scanners_for_modules(technical_modules)
@@ -94,10 +152,12 @@ def build_candidate_cards_from_bundle(
         technical_modules=technical_modules,
         event_cards=event_cards,
         theme_cards=theme_cards,
+        macro_event_cards=macro_event_cards,
         capital_cards=capital_cards,
         text_watch_records=text_watch_records,
         module_signals=module_signals,
         available_module_ids=set(scanners),
+        setup_policy=setup_policy,
     )
     json_path = save_candidate_cards(trade_date, cards)
     md_path = _analysis_output_dir() / f"candidate_cards_{trade_date}.md"

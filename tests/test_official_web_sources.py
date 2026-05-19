@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
 
 from trading_system.integrations.official_web_sources import (
     OfficialWebSourceSpec,
+    _dedupe_news_records,
     _parse_cninfo_latest_announcements,
     _parse_miit_rrs_section,
     _parse_ndrc_notice_list,
@@ -116,7 +117,7 @@ class OfficialWebSourcesTest(unittest.TestCase):
         热点动态
         上海证券交易所推出优化再融资一揽子措施
         2026-02-09
-        上交所新增发布三项可持续发展报告编制应用指南
+        上交所新增发布三项可持续发展报告编制应用指引
         2026-01-30
         各栏更新
         </body></html>
@@ -154,6 +155,35 @@ class OfficialWebSourcesTest(unittest.TestCase):
         records = _parse_szse_exchange_news(html, spec)
         self.assertEqual(len(records), 2)
         self.assertIn("风险提示", records[1]["title"])
+
+    def test_dedupe_news_records_filters_noise_and_prefers_higher_quality(self) -> None:
+        records = [
+            {
+                "title": "VIP资讯 解锁直达> 【风口研报·公司】AI ASIC芯片预期差",
+                "publish_time": "2026-05-17 17:42:00",
+                "source_name": "财联社",
+                "summary_text": "解锁直达",
+                "priority_score": 9,
+            },
+            {
+                "title": "长鑫科技：一季度营收同比增长719.13% 净利润330亿元",
+                "publish_time": "2026-05-17 17:33:00",
+                "source_name": "财联社",
+                "summary_text": "财联社版本",
+                "priority_score": 7,
+            },
+            {
+                "title": "【长鑫科技：一季度营收同比增长719.13% 净利润330亿元】",
+                "publish_time": "2026-05-17 17:34:03",
+                "source_name": "东方财富",
+                "summary_text": "东方财富版本",
+                "priority_score": 7,
+            },
+        ]
+        deduped = _dedupe_news_records(records)
+        self.assertEqual(len(deduped), 1)
+        self.assertEqual(deduped[0]["source_name"], "财联社")
+        self.assertIn("长鑫科技", deduped[0]["title"])
 
 
 if __name__ == "__main__":
